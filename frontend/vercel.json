@@ -1,0 +1,19 @@
+{
+  "rewrites": [
+    {
+      "source": "/widget.js",
+      "destination": "/public/widget.js"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/widget.js",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    }
+  ]
+}
