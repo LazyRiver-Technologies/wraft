@@ -53,10 +53,13 @@ export default function SourcesPage() {
 
   // Add Link/Sitemap/Text
   const { mutate: addSource, isPending: addingSource } = useMutation({
-    mutationFn: (payload: Record<string, unknown>) => fetchApi(`/api/v1/bots/${botId}/sources`, {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
+    mutationFn: (payload: Record<string, unknown>) => {
+      const { type, ...data } = payload;
+      return fetchApi(`/api/v1/bots/${botId}/sources/${type}`, {
+        method: "POST",
+        body: JSON.stringify(data)
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sources', botId] })
       toast({ title: "Success", description: "Source queued for processing." })
@@ -72,7 +75,7 @@ export default function SourcesPage() {
       const formData = new FormData()
       formData.append('file', file)
       
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/bots/${botId}/sources/upload`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/bots/${botId}/sources/pdf`, {
         method: "POST",
         body: formData,
         headers: {
@@ -135,18 +138,18 @@ export default function SourcesPage() {
             
             <TabsContent value="url" className="space-y-4">
               <Input placeholder="https://example.com/about" value={url} onChange={e => setUrl(e.target.value)} />
-              <Button onClick={() => addSource({ type: "url", name: url, source_url: url })} disabled={addingSource || !url}>Train on URL</Button>
+              <Button onClick={() => addSource({ type: "url", name: url, url: url })} disabled={addingSource || !url}>Train on URL</Button>
             </TabsContent>
             
             <TabsContent value="sitemap" className="space-y-4">
               <Input placeholder="https://example.com/sitemap.xml" value={sitemap} onChange={e => setSitemap(e.target.value)} />
-              <Button onClick={() => addSource({ type: "sitemap", name: sitemap, source_url: sitemap })} disabled={addingSource || !sitemap}>Train on Sitemap</Button>
+              <Button onClick={() => addSource({ type: "sitemap", name: sitemap, url: sitemap })} disabled={addingSource || !sitemap}>Train on Sitemap</Button>
             </TabsContent>
             
             <TabsContent value="text" className="space-y-4">
               <Input placeholder="Document Title" value={textName} onChange={e => setTextName(e.target.value)} />
               <Textarea placeholder="Paste your text content here..." rows={6} value={text} onChange={e => setText(e.target.value)} />
-              <Button onClick={() => addSource({ type: "text", name: textName || "Raw Text", raw_text: text })} disabled={addingSource || !text}>Train on Text</Button>
+              <Button onClick={() => addSource({ type: "text", name: textName || "Raw Text", content: text })} disabled={addingSource || !text}>Train on Text</Button>
             </TabsContent>
           </Tabs>
         </CardContent>

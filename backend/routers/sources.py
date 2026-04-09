@@ -25,7 +25,7 @@ class SitemapSourceCreate(BaseModel):
 
 async def check_data_source_limit(bot_id: str, user, db):
     # Fetch user plan to check limits
-    plan_res = await db.table("profiles").select("plans(max_sources)").eq("id", user.id).single().execute()
+    plan_res = await db.table("profiles").select("plans(*)").eq("id", user.id).single().execute()
     profile = plan_res.data
     plan = profile.get("plans") if profile else None
     

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str
     DATABASE_URL: str
     GEMINI_API_KEY: str
+    GROQ_API_KEY: str
     REDIS_URL: str
     META_VERIFY_TOKEN: str
     META_APP_SECRET: str

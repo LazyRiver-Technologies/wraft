@@ -59,6 +59,7 @@ async def get_rag_response(question: str, bot_id: str, bot_settings: dict, conve
         "query_text": question,
         "p_bot_id": bot_id,
         "match_count": match_count,
+        "match_threshold": bot_settings.get("match_threshold", 0.5),
         "p_search_mode": search_mode
     }
     
@@ -83,47 +84,89 @@ async def get_rag_response(question: str, bot_id: str, bot_settings: dict, conve
     
     history_str = ""
     if conversation_history:
-        history_str = "\n".join([f"{'User' if msg.get('role') == 'user' else 'Assistant'}: {msg.get('content', '')}" for msg in conversation_history])
+        history_str = "\n".join([f"{'User' if msg.get('role') == 'user' else 'Assistant'}: {msg.get('content', '')}" for msg in conversation_history[-6:]])
 
-    full_prompt = f"""SYSTEM: {system_prompt}
+    system_part = f"""SYSTEM MESSAGE:
+{system_prompt}
+
+Language rule: Detect the language of the user's question and always respond in that exact same language. If the user writes in Hindi (हिंदी), respond fully in Hindi. If the user writes in Kannada (ಕನ್ನಡ), respond fully in Kannada. If English or Hinglish, respond accordingly. Never switch languages unless the user switches first.
 
 CONTEXT:
 {context_str}
 
 CONVERSATION HISTORY:
-{history_str}
+{history_str}"""
 
-USER QUESTION: {question}
+    full_prompt = f"""{system_part}
 
-Important: Answer only from the context above."""
+USER QUESTION:
+{question}"""
 
-    # 7. Call Gemini API
-    model_name = "models/" + bot_settings.get("model", "gemini-2.0-flash")
-    # if standard model string is passed without models/, prepend it. Let's just use gemini-2.0-flash
-    if "models/" not in model_name:
-        model_name = "models/gemini-2.0-flash" 
-        
-    model = genai.GenerativeModel(model_name)
     temperature = bot_settings.get("temperature", 0.7)
-    
-    gen_config = genai.GenerationConfig(temperature=temperature)
-    
+
+    # 7. Call LLM
+    import logging
+    import asyncio
+    import google.api_core.exceptions
+    logger = logging.getLogger(__name__)
+
+    selected_model = bot_settings.get("model", "gemini-2.5-flash-lite")
+
     try:
-        response = model.generate_content(full_prompt, generation_config=gen_config)
-        answer_text = response.text
-        
-        # 8. Token count 
-        # Using built-in usage_metadata if available
-        tokens_used = 0
-        if hasattr(response, "usage_metadata") and response.usage_metadata:
-             tokens_used = response.usage_metadata.total_token_count
+        if selected_model == "llama-3.1-8b-instant":
+            from groq import AsyncGroq
+            groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+            
+            groq_response = await groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": system_part},
+                    {"role": "user", "content": question}
+                ],
+                temperature=temperature,
+                max_tokens=1024,
+            )
+            answer_text = groq_response.choices[0].message.content
+            tokens_used = groq_response.usage.total_tokens
         else:
-             # Fallback estimation
-             tokens_used = len(full_prompt) // 4 + len(answer_text) // 4
-             
+            try:
+                genai.configure(api_key=settings.GEMINI_API_KEY)
+                model = genai.GenerativeModel(
+                    model_name="gemini-2.5-flash-lite",
+                    generation_config=genai.GenerationConfig(
+                        temperature=temperature,
+                        max_output_tokens=1024,
+                    )
+                )
+                response = await asyncio.to_thread(
+                    model.generate_content,
+                    full_prompt
+                )
+                answer_text = response.text
+                if hasattr(response, "usage_metadata") and response.usage_metadata:
+                     tokens_used = response.usage_metadata.total_token_count
+                else:
+                     tokens_used = len(full_prompt) // 4 + len(answer_text) // 4
+    
+            except (google.api_core.exceptions.ServiceUnavailable, google.api_core.exceptions.InternalServerError, google.api_core.exceptions.DeadlineExceeded) as e:
+                logger.warning(f"Gemini unavailable, using Groq fallback: {e}")
+                from groq import AsyncGroq
+                groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+                
+                groq_response = await groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {"role": "system", "content": system_part},
+                        {"role": "user", "content": question}
+                    ],
+                    temperature=temperature,
+                    max_tokens=1024,
+                )
+                answer_text = groq_response.choices[0].message.content
+                tokens_used = groq_response.usage.total_tokens
+
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Gemini API failure: {e}")
+        logger.error(f"LLM API failure: {e}")
         return {
             "response": "I'm currently experiencing technical difficulties processing your request.",
             "cache_hit": False,

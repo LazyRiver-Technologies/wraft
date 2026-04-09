@@ -24,7 +24,7 @@ export default function SettingsPage() {
   
   const [formData, setFormData] = useState({
     system_prompt: '',
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash-lite',
     temperature: 0.7,
     max_chunks: 5,
     search_mode: 'hybrid',
@@ -35,7 +35,7 @@ export default function SettingsPage() {
     if (bot && bot.bot_settings) {
       setFormData({
         system_prompt: bot.bot_settings.system_prompt || '',
-        model: bot.bot_settings.model || 'gemini-2.0-flash',
+        model: bot.bot_settings.model || 'gemini-2.5-flash-lite',
         temperature: bot.bot_settings.temperature || 0.7,
         max_chunks: bot.bot_settings.max_chunks || 5,
         search_mode: bot.bot_settings.search_mode || 'hybrid',
@@ -92,7 +92,18 @@ export default function SettingsPage() {
                   <SelectValue placeholder="Select a model" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
+                  <SelectItem value="gemini-2.5-flash-lite">
+                    <div>
+                      <div className="font-medium">Gemini 2.5 Flash Lite (Recommended)</div>
+                      <div className="text-xs text-slate-500">Best for Hindi, Kannada, English and Hinglish</div>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="llama-3.1-8b-instant">
+                    <div>
+                      <div className="font-medium">Llama 3.1 8B via Groq (Faster)</div>
+                      <div className="text-xs text-slate-500">Good for English only</div>
+                    </div>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>

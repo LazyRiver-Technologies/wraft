@@ -42,7 +42,8 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
                 response = genai.embed_content(
                     model=model,
                     content=batch,
-                    task_type="retrieval_document" # optional but best practice for RAG
+                    task_type="retrieval_document", # optional but best practice for RAG
+                    output_dimensionality=768
                 )
                 
                 # Check response format. genai.embed_content returns a dict 

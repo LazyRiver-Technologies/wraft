@@ -133,11 +133,20 @@ async def get_bot(bot_id: str, user=Depends(get_current_user), db=Depends(get_db
             
     return bot
 
+ALLOWED_MODELS = [
+    'gemini-2.5-flash-lite',   # primary — recommended
+    'llama-3.1-8b-instant',    # groq direct — not recommended for Indian languages
+]
+
 @router.patch("/{bot_id}/settings")
 async def update_bot_settings(bot_id: str, settings: BotSettingsUpdate, user=Depends(get_current_user), db=Depends(get_db)):
     await verify_bot_ownership(bot_id, user, db)
     
     update_data = {k: v for k, v in settings.model_dump().items() if v is not None}
+    
+    if "model" in update_data and update_data["model"] not in ALLOWED_MODELS:
+        raise HTTPException(status_code=400, detail="Invalid model selected")
+        
     if not update_data:
         return {"status": "ok"}
         
