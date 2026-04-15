@@ -99,7 +99,7 @@ export default function AppearancePage() {
   if (isLoading) return <p>Loading...</p>
 
   return (
-    <div className="grid md:grid-cols-2 gap-8 max-w-6xl">
+    <div className="mx-auto grid md:grid-cols-2 gap-10 max-w-6xl animate-in fade-in duration-500 pb-10">
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Appearance</h1>

@@ -105,7 +105,7 @@ export default function SourcesPage() {
   })
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="mx-auto max-w-5xl space-y-8 animate-in fade-in duration-500 pb-10">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Data Sources</h1>
         <p className="text-slate-500">Train your bot on customized proprietary data.</p>

@@ -6,7 +6,14 @@ import { supabase } from '@/lib/supabase'
 import { useStore } from '@/lib/store'
 
 export default function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient())
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: Infinity, // Cache forever until explicitly invalidated
+        refetchOnWindowFocus: false,
+      },
+    },
+  }))
   const setUser = useStore(state => state.setUser)
 
   useEffect(() => {

@@ -96,7 +96,7 @@ export default function ChatPlaygroundPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto h-[calc(100vh-8rem)] flex flex-col">
+    <div className="mx-auto max-w-4xl h-[calc(100vh-8rem)] flex flex-col animate-in fade-in duration-500">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2 text-slate-900">

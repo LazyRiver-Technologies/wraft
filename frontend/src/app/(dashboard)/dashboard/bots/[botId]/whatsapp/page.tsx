@@ -58,7 +58,7 @@ export default function WhatsAppPage() {
   if (isLoading) return <p>Loading...</p>
 
   return (
-    <div className="max-w-3xl space-y-8">
+    <div className="mx-auto max-w-4xl space-y-8 animate-in fade-in duration-500 pb-10">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
