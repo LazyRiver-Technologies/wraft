@@ -1,117 +1,121 @@
 "use client"
 
-import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchApi } from '@/lib/api'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { useToast } from '@/hooks/use-toast'
-import Link from 'next/link'
-import { Plus } from 'lucide-react'
-import { useStore, Bot } from '@/lib/store'
+import * as React from "react"
+import Link from "next/link"
+import { Plus, Globe, Phone, ExternalLink } from "lucide-react"
 
-export default function BotsPage() {
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [slug, setSlug] = useState('')
-  
-  const { toast } = useToast()
-  const queryClient = useQueryClient()
-  const setCurrentBot = useStore(state => state.setCurrentBot)
+import { useStore } from "@/lib/store"
+import { useBots } from "@/hooks/api/useBots"
+import { PageHeader } from "@/components/ui/page-header"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 
-  const { data: bots, isLoading } = useQuery({
-    queryKey: ['bots'],
-    queryFn: () => fetchApi('/api/v1/bots')
-  })
+export default function BotsListPage() {
+  const { data: botsData, isLoading } = useBots()
+  const setCurrentBot = useStore((state) => state.setCurrentBot)
+  const bots = botsData || []
 
-  const { mutate, isPending } = useMutation({
-    mutationFn: (newBot: {name: string, slug: string}) => fetchApi('/api/v1/bots', {
-      method: 'POST',
-      body: JSON.stringify(newBot)
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bots'] })
-      setOpen(false)
-      setName('')
-      setSlug('')
-      toast({ title: "Success", description: "Bot created successfully!" })
-    },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" })
-    }
-  })
+  React.useEffect(() => {
+    setCurrentBot(null)
+  }, [setCurrentBot])
 
-  const handleNameChange = (val: string) => {
-    setName(val)
-    setSlug(val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''))
-  }
-
-  const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!name || !slug) return
-    mutate({ name, slug })
+  if (isLoading) {
+    return (
+      <>
+        <div className="h-10 w-48 bg-bg-tertiary rounded-md animate-pulse mb-8" />
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="h-[220px] bg-bg-secondary rounded-lg animate-pulse" />
+          <div className="h-[220px] bg-bg-secondary rounded-lg animate-pulse" />
+        </div>
+      </>
+    )
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">My Bots</h1>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" /> New Bot</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create a new Bot</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={onSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Bot Name</label>
-                <Input value={name} onChange={e => handleNameChange(e.target.value)} placeholder="E.g. Customer Support" required />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">URL Slug</label>
-                <Input value={slug} onChange={e => setSlug(e.target.value)} placeholder="customer-support" required />
-              </div>
-              <Button type="submit" disabled={isPending} className="w-full">
-                {isPending ? "Creating..." : "Create Bot"}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+    <>
+      <PageHeader 
+        title="Your Bots" 
+        description="Manage your configured AI assistants and their integrations."
+      >
+        <Link href="/dashboard/bots/new">
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            Create new bot
+          </Button>
+        </Link>
+      </PageHeader>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {isLoading ? (
-          <p>Loading...</p>
-        ) : (
-          bots?.map((bot: Bot) => (
-            <Link key={bot.id} href={`/dashboard/bots/${bot.id}`} onClick={() => setCurrentBot(bot)}>
-              <Card className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{bot.name}</CardTitle>
-                    <div className={`h-2 w-2 rounded-full ${bot.is_active ? 'bg-emerald-500' : 'bg-red-500'}`} />
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Existing Bots */}
+        {bots.map((bot) => {
+          const stats = {
+            convos: Number(bot.chunk_count || 0),
+            messages: Number(bot.message_count || 0),
+            leads: Number(bot.lead_count || 0)
+          }
+          
+          const hasWhatsApp = Array.isArray(bot.whatsapp_configs) && bot.whatsapp_configs.length > 0;
+
+          return (
+            <div key={bot.id} className="flex min-h-[220px] flex-col rounded-lg border border-border-default bg-bg-secondary p-5 transition-colors hover:border-border-hover">
+              
+              {/* Top Row: Name + Badge */}
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <h3 className="text-lg font-medium text-text-primary">{bot.name}</h3>
+                    <Badge variant={bot.is_active !== false ? "success" : "default"}>
+                      {bot.is_active !== false ? "Active" : "Inactive"}
+                    </Badge>
                   </div>
-                  <span className="text-sm text-slate-500">/{bot.slug}</span>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex justify-between text-sm text-slate-600 mt-4">
-                    <span>Sources: {bot.data_sources?.length || 0}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))
-        )}
-        {bots?.length === 0 && !isLoading && (
-          <div className="col-span-full py-12 text-center text-slate-500 border-2 border-dashed rounded-lg">
-            No bots yet. Create your first indexing bot!
-          </div>
-        )}
+                  {/* Second Row: Slug */}
+                  <p className="mt-1 font-mono text-xs text-text-tertiary">{bot.slug}</p>
+                </div>
+              </div>
+
+              {/* Stats Row */}
+              <div className="mt-6 flex items-center gap-6">
+                <div className="flex flex-col">
+                  <span className="text-xl font-bold text-text-primary">{String(stats.convos)}</span>
+                  <span className="text-xs text-text-tertiary uppercase tracking-wider mt-0.5">Conversations</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xl font-bold text-text-primary">{String(stats.messages)}</span>
+                  <span className="text-xs text-text-tertiary uppercase tracking-wider mt-0.5">Messages</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xl font-bold text-text-primary">{String(stats.leads)}</span>
+                  <span className="text-xs text-text-tertiary uppercase tracking-wider mt-0.5">Leads</span>
+                </div>
+              </div>
+
+              <div className="mt-auto pt-6 flex items-center justify-between">
+                {/* Channels */}
+                <div className="flex gap-2">
+                  <Badge variant="outline" className="flex items-center gap-1.5 px-2.5 py-1">
+                    <Globe className="h-3 w-3" /> 
+                    Web
+                  </Badge>
+                  <Badge variant="outline" className="flex items-center gap-1.5 px-2.5 py-1">
+                    <Phone className="h-3 w-3" />
+                    WhatsApp
+                    {hasWhatsApp && (
+                      <span className="ml-1 h-1.5 w-1.5 rounded-full bg-success"></span>
+                    )}
+                  </Badge>
+                </div>
+                
+                <Link href={`/dashboard/bots/${bot.id}`}>
+                  <Button variant="secondary" size="sm" className="h-8">
+                    Open <ExternalLink className="ml-2 h-3 w-3" />
+                  </Button>
+                </Link>
+              </div>
+
+            </div>
+          )
+        })}
       </div>
-    </div>
+    </>
   )
 }

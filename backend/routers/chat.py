@@ -2,9 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, constr, Field
 from typing import Optional
 from datetime import datetime, timezone
+from datetime import datetime, timezone
+import re
+import asyncio
 from database import get_db
 from redis_client import get_redis
 from services.rag import get_rag_response
+from services.notifications import send_owner_notification
+from utils.limits import get_strict_plan
 
 router = APIRouter()
 
@@ -20,7 +25,7 @@ async def send_chat_message(bot_slug: str, req: ChatRequest, db=Depends(get_db),
     Public Endpoint for chatbot interactions via slug
     """
     # Verify Bot
-    bot_res = await db.table("bots").select("id, is_active, owner_id, bot_settings(*)").eq("slug", bot_slug).single().execute()
+    bot_res = await db.table("bots").select("id, is_active, name, owner_id, bot_settings(*), notification_settings(*)").eq("slug", bot_slug).single().execute()
     if not bot_res.data:
         raise HTTPException(status_code=404, detail="Bot not found")
         
@@ -29,7 +34,29 @@ async def send_chat_message(bot_slug: str, req: ChatRequest, db=Depends(get_db),
         raise HTTPException(status_code=404, detail="Bot is disabled")
         
     bot_id = bot["id"]
+    owner_id = bot["owner_id"]
+    bot_name = bot.get("name", "AI Bot")
     bot_settings = bot.get("bot_settings") or {}
+    
+    # Extract notification settings block globally
+    raw_notifs = bot.get("notification_settings") or []
+    ns = raw_notifs[0] if isinstance(raw_notifs, list) and len(raw_notifs) > 0 else {}
+    owner_whatsapp = ns.get("owner_whatsapp")
+    
+    # 2. Strict Mathematical Constraints for the Billing Network
+    strict_data = await get_strict_plan(owner_id, db)
+    plan = strict_data["plan"]
+    current_msg_count = strict_data["monthly_message_count"]
+    
+    if plan.get("max_messages_per_month") is not None:
+         if current_msg_count >= plan["max_messages_per_month"]:
+              # Map clean rejection so widget doesn't physically break, just blocks context
+              return {
+                  "response": "This bot has reached its monthly message limit. Please upgrade your plan to continue.",
+                  "session_id": req.session_id,
+                  "sources": [],
+                  "cache_hit": False
+              }
 
     # Fetch/Create Session
     conv_res = await db.table("conversations").select("*").eq("bot_id", bot_id).eq("session_id", req.session_id).execute()
@@ -56,14 +83,33 @@ async def send_chat_message(bot_slug: str, req: ChatRequest, db=Depends(get_db),
     raw_history = history_res.data or []
     history = raw_history[::-1]
 
+    # Pre-RAG Lead Capture Injection
+    lead_capture_enabled = bot_settings.get("lead_capture_enabled", False)
+    lead_trigger = bot_settings.get("lead_capture_trigger", 2)
+    new_message_count = conversation.get("message_count", 0) + 1
+    
+    has_lead = False
+    if lead_capture_enabled:
+        lead_res = await db.table("leads").select("id").eq("conversation_id", conversation_id).execute()
+        if lead_res.data and len(lead_res.data) > 0:
+            has_lead = True
+
+    if lead_capture_enabled and not has_lead and new_message_count == lead_trigger:
+        trigger_msg = bot_settings.get("lead_capture_message", "May I have your name and WhatsApp number so we can follow up with you?")
+        sys_prompt = bot_settings.get("system_prompt", "You are a helpful assistant.")
+        bot_settings["system_prompt"] = sys_prompt + f"\n\n[LEAD CAPTURE DIRECTIVE: You must politely ask for their contact details exactly stating: '{trigger_msg}']"
+
     # Generate RAG response
     rag_result = await get_rag_response(
         question=req.message,
         bot_id=bot_id,
         bot_settings=bot_settings,
         conversation_history=history,
+        owner_id=owner_id,
+        channel=req.channel,
         db=db,
-        redis=redis
+        redis=redis,
+        bot_name=bot_name
     )
 
     await db.table("messages").insert([
@@ -87,27 +133,133 @@ async def send_chat_message(bot_slug: str, req: ChatRequest, db=Depends(get_db),
         }
     ]).execute()
 
+    # Post-RAG Lead Capture Evaluator (Regex Binding)
+    if lead_capture_enabled and not has_lead:
+        phone_match = re.search(r'((\+91|91|0)?[6-9]\d{9})', req.message)
+        if phone_match:
+            phone_num = phone_match.group(1)
+            # Build Context (last 3 messages)
+            context_list = [{"role": m["role"], "content": m["content"]} for m in history[-2:]]
+            context_list.append({"role": "user", "content": req.message})
+            
+            await db.table("leads").insert({
+                "bot_id": bot_id,
+                "conversation_id": conversation_id,
+                "phone": phone_num,
+                "channel": req.channel,
+                "context": context_list
+            }).execute()
+
+            # TRIGGER 1 - New Lead Notification
+            if owner_whatsapp:
+                asyncio.create_task(
+                    send_owner_notification(
+                        owner_whatsapp=owner_whatsapp,
+                        notification_type="new_lead",
+                        data={
+                            "bot_name": bot_name,
+                            "name": "Anonymous",  # Wait for NLP name extraction
+                            "phone": phone_num,
+                            "last_user_message": req.message[:100]
+                        },
+                        bot_id=bot_id, db=db, redis=redis
+                    )
+                )
+
+    # ---------------------------------------------------------
+    # NON-BLOCKING TRIGGER EVALUATIONS
+    # ---------------------------------------------------------
+    
+    if owner_whatsapp:
+        # TRIGGER 2 - Bot fallback 
+        if rag_result.get("response") == bot_settings.get("fallback_message"):
+            asyncio.create_task(
+                send_owner_notification(
+                    owner_whatsapp=owner_whatsapp,
+                    notification_type="bot_fallback",
+                    data={
+                        "bot_name": bot_name,
+                        "question": req.message[:200]
+                    },
+                    bot_id=bot_id, db=db, redis=redis
+                )
+            )
+
+        # TRIGGER 3 - Negative Sentiment
+        # Assuming format was saved as rag_result["sentiment_score"] during generation limits
+        sentiment_score = rag_result.get("sentiment_score", 0.0)
+        if sentiment_score < -0.3:
+            asyncio.create_task(
+                send_owner_notification(
+                    owner_whatsapp=owner_whatsapp,
+                    notification_type="negative_sentiment",
+                    data={
+                        "bot_name": bot_name,
+                        "last_message": req.message[:150]
+                    },
+                    bot_id=bot_id, db=db, redis=redis
+                )
+            )
+
+        # TRIGGER 4 - Escalation Intent Dictionary Evaluation
+        ESCALATION_KEYWORDS = [
+            "human", "agent", "person", "staff",
+            "insaan", "banda", "koi", "manager",
+            "ಮನುಷ್ಯ", "ಸಿಬ್ಬಂದಿ", "मनुष्य", "इंसान", "कोई आदमी"
+        ]
+        if any(kw in req.message.lower() for kw in ESCALATION_KEYWORDS):
+            asyncio.create_task(
+                send_owner_notification(
+                    owner_whatsapp=owner_whatsapp,
+                    notification_type="escalation_requested",
+                    data={
+                        "bot_name": bot_name,
+                        "last_message": req.message[:150]
+                    },
+                    bot_id=bot_id, db=db, redis=redis
+                )
+            )
+
     # Update Conversation Stats
-    new_message_count = conversation.get("message_count", 0) + 1
     now_str = datetime.now(timezone.utc).isoformat()
     await db.table("conversations").update({
         "message_count": new_message_count,
         "last_active_at": now_str
     }).eq("id", conversation_id).execute()
+    
+    # Actually increment the user's monthly limits mathematically!
+    await db.table("profiles").update({
+        "monthly_message_count": current_msg_count + 1
+    }).eq("id", owner_id).execute()
 
     # Insert Analytics Events
     # Usually "message_sent" (user) and "message_received" (bot)
     events = [
-        {"bot_id": bot_id, "event_type": "message_sent", "session_id": req.session_id},
-        {"bot_id": bot_id, "event_type": "message_received", "session_id": req.session_id}
+        {"bot_id": bot_id, "event_type": "message_sent", "session_id": req.session_id, "properties": {"channel": req.channel}},
+        {"bot_id": bot_id, "event_type": "message_received", "session_id": req.session_id, "properties": {"channel": req.channel}}
     ]
+    
+    # Addition 6 — Guardrail source to analytics
+    source = rag_result.get("source", "")
+    if source and source.startswith("guardrail_"):
+        events.append({
+            "bot_id": bot_id, 
+            "event_type": "guardrail_triggered", 
+            "session_id": req.session_id,
+            "properties": {
+                "guardrail_type": source,
+                "question_preview": req.message[:50]
+            }
+        })
+        
     await db.table("analytics_events").insert(events).execute()
 
     return {
         "response": rag_result["response"],
         "session_id": req.session_id,
         "sources": rag_result["sources"],
-        "cache_hit": rag_result["cache_hit"]
+        "cache_hit": rag_result["cache_hit"],
+        "confidence_score": rag_result.get("confidence_score", 0.0)
     }
 
 
@@ -139,14 +291,31 @@ async def get_bot_appearance(bot_slug: str, db=Depends(get_db)):
     """
     Public Endpoint fetching generic chat widget theme logic directly
     """
-    bot_res = await db.table("bots").select("id, bot_appearance(*)").eq("slug", bot_slug).single().execute()
+    bot_res = await db.table("bots").select("id, owner_id, bot_appearance(*)").eq("slug", bot_slug).single().execute()
     if not bot_res.data:
          raise HTTPException(status_code=404, detail="Bot not found")
          
+    bot_owner = bot_res.data.get("owner_id")
+    show_watermark = True
+    
+    if bot_owner:
+        try:
+            profile_res = await db.table("profiles").select("plans(name)").eq("id", bot_owner).single().execute()
+            if profile_res.data and profile_res.data.get("plans"):
+                plan_name = profile_res.data["plans"].get("name", "Free")
+                if plan_name and plan_name.lower() != "free":
+                    show_watermark = False
+        except Exception:
+            pass
+
     appearance = bot_res.data.get("bot_appearance") or {}
+    if isinstance(appearance, list):
+         appearance = appearance[0] if appearance else {}
+
     return {
-        "theme_color": appearance.get("theme_color", "#4f46e5"),
+        "theme_color": appearance.get("theme_color", "#25D366"),
         "welcome_message": appearance.get("welcome_message", "Hi there! How can I help you today?"),
         "placeholder_text": appearance.get("placeholder_text", "Type your message..."),
-        "position": appearance.get("position", "bottom-right")
+        "position": appearance.get("position", "bottom-right"),
+        "show_watermark": show_watermark
     }

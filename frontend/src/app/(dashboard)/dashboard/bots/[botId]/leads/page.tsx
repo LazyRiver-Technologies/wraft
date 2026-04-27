@@ -1,0 +1,245 @@
+"use client"
+
+import * as React from "react"
+import { Search, Copy, CheckCircle2, Circle, Download, Filter } from "lucide-react"
+
+import { PageHeader } from "@/components/ui/page-header"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { 
+  Table, TableBody, TableCell, TableHead, 
+  TableHeader, TableRow 
+} from "@/components/ui/table"
+import { useLeads, useUpdateLead } from "@/hooks/api/useLeads"
+import { formatDistanceToNow } from "date-fns"
+import { useToast } from "@/hooks/use-toast"
+import { useProfileWithPlan } from "@/hooks/api/useBilling"
+import { FeatureGate } from "@/components/ui/FeatureGate"
+
+export default function BotLeadsPage(props: { params: any }) {
+  const params = React.use(props.params as Promise<{ botId: string }>)
+  const { toast } = useToast()
+  const [searchTerm, setSearchTerm] = React.useState("")
+  const [filterContacted, setFilterContacted] = React.useState<boolean | undefined>(undefined)
+
+  const { data: leadsResp, isLoading } = useLeads({ 
+    botId: params.botId, 
+    search: searchTerm, 
+    contacted: filterContacted 
+  })
+  const leads = leadsResp || []
+  const totalLeads = leads.length || 0
+  
+  const updateLead = useUpdateLead()
+  const { data: profile } = useProfileWithPlan()
+  const hasLeadsExport = profile?.plans?.leads_export === true
+
+  const toggleContacted = (leadId: string, currentStatus: boolean) => {
+    updateLead.mutate({ botId: params.botId, leadId, is_contacted: !currentStatus })
+  }
+
+  const handleExport = () => {
+    if (!leads.length) {
+      toast({ title: "No data", description: "There are no leads to export." })
+      return
+    }
+    const headers = ["Name", "Email", "Phone", "Source", "Message Preview", "Status", "Date"]
+    const rows = leads.map((l: any) => [
+      l.name || "Unknown",
+      l.email || "",
+      l.phone || "",
+      l.source || "Web",
+      (l.message_preview || "").replace(/"/g, '""'),
+      l.is_contacted ? "Contacted" : "Pending",
+      new Date(l.created_at).toISOString()
+    ])
+    
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => `"${row.join('","')}"`)
+    ].join("\n")
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement("a")
+    link.href = URL.createObjectURL(blob)
+    link.setAttribute("download", `leads_export_${params.botId}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  // Derived stats from visible leads
+  const contactedCount = leads.filter((l:any) => l.is_contacted).length
+  const waReadyCount = leads.filter((l:any) => l.phone).length
+
+  return (
+    <div className="pb-10 animate-in fade-in duration-500">
+      <PageHeader 
+        title="Leads" 
+        description="Review user contact details captured during conversations."
+      >
+        <FeatureGate hasAccess={hasLeadsExport} requiredPlan="Growth">
+          <Button variant="secondary" size="sm" className="h-9" onClick={handleExport}>
+            <Download className="mr-2 h-4 w-4" /> Export
+          </Button>
+        </FeatureGate>
+      </PageHeader>
+
+      <div className="flex flex-col gap-6 mt-6">
+        
+        {/* STATS BAR */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: "Total Leads", value: totalLeads, color: "text-text-primary" },
+            { label: "Contacted", value: contactedCount, color: "text-success" },
+            { label: "Conversion", value: totalLeads > 0 ? `${Math.round((contactedCount/totalLeads)*100)}%` : "0%", color: "text-brand" },
+            { label: "WhatsApp Ready", value: waReadyCount, color: "text-brand" },
+          ].map((stat, i) => (
+            <div key={i} className="bg-bg-secondary border border-border-default rounded-xl p-4 shadow-sm">
+              <span className="text-[10px] text-text-tertiary uppercase tracking-widest font-bold">{stat.label}</span>
+              <p className={`text-2xl font-bold mt-1 ${stat.color}`}>{stat.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* FILTERS */}
+        <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+          <div className="relative w-full md:w-[320px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-tertiary" />
+            <Input 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 h-11 bg-bg-secondary border-border-default focus:border-brand" 
+              placeholder="Search name or phone..." 
+            />
+          </div>
+          
+          <div className="flex items-center gap-2 w-full md:w-auto">
+             <Button 
+                variant="secondary" 
+                size="sm"
+                className={`flex-1 md:flex-none h-9 text-xs font-semibold ${filterContacted === undefined ? 'bg-bg-tertiary' : ''}`}
+                onClick={() => setFilterContacted(undefined)}
+             >
+                All
+             </Button>
+             <Button 
+                variant="secondary" 
+                size="sm"
+                className={`flex-1 md:flex-none h-9 text-xs font-semibold ${filterContacted === false ? 'bg-bg-tertiary ring-1 ring-brand/30' : ''}`}
+                onClick={() => setFilterContacted(false)}
+             >
+                Pending
+             </Button>
+             <Button 
+                variant="secondary" 
+                size="sm"
+                className={`flex-1 md:flex-none h-9 text-xs font-semibold ${filterContacted === true ? 'bg-bg-tertiary ring-1 ring-brand/30' : ''}`}
+                onClick={() => setFilterContacted(true)}
+             >
+                Contacted
+             </Button>
+          </div>
+        </div>
+
+        {/* TABLE */}
+        <div className="rounded-xl border border-border-default bg-bg-secondary overflow-hidden shadow-sm">
+          <Table>
+            <TableHeader className="bg-bg-tertiary/50">
+              <TableRow className="hover:bg-transparent border-border-default">
+                <TableHead className="text-text-tertiary font-bold uppercase text-[10px] tracking-widest py-4">Lead Identity</TableHead>
+                <TableHead className="text-text-tertiary font-bold uppercase text-[10px] tracking-widest py-4">Contact Detail</TableHead>
+                <TableHead className="text-text-tertiary font-bold uppercase text-[10px] tracking-widest py-4">Recent Inquiry</TableHead>
+                <TableHead className="text-text-tertiary font-bold uppercase text-[10px] tracking-widest py-4">Captured</TableHead>
+                <TableHead className="text-center text-text-tertiary font-bold uppercase text-[10px] tracking-widest py-4">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-64 text-center">
+                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent mx-auto"></div>
+                  </TableCell>
+                </TableRow>
+              ) : leads.length > 0 ? (
+                leads.map((lead: any) => (
+                  <TableRow key={lead.id} className="border-border-default hover:bg-bg-tertiary/20 transition-colors">
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-9 w-9 bg-brand/10 border border-brand/20">
+                          <AvatarFallback className="text-brand font-bold text-xs">
+                            {lead.name && lead.name !== "Unknown User" ? lead.name.charAt(0).toUpperCase() : "?"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-text-primary text-sm">{lead.name || "Anonymous"}</span>
+                          <Badge variant="outline" className="w-fit text-[9px] px-1 py-0 h-4 bg-bg-tertiary border-none uppercase tracking-tighter font-bold">{lead.source || "Web"}</Badge>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2 group">
+                        <span className="font-mono text-xs text-text-secondary">{lead.phone || lead.email || "No data"}</span>
+                        {(lead.phone || lead.email) && (
+                          <button 
+                             onClick={() => {
+                                navigator.clipboard.writeText(lead.phone || lead.email)
+                                toast({ title: "Copied" })
+                             }}
+                             className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                             <Copy className="h-3 w-3 text-text-tertiary hover:text-brand" />
+                          </button>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-text-tertiary italic line-clamp-1 max-w-[200px]">
+                        &quot;{lead.message_preview || "No message data"}&quot;
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-text-tertiary whitespace-nowrap">
+                        {lead.created_at ? formatDistanceToNow(new Date(lead.created_at), { addSuffix: true }) : "..."}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-center">
+                        <button 
+                          onClick={() => toggleContacted(lead.id, lead.is_contacted)}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
+                            lead.is_contacted 
+                              ? 'bg-success/10 text-success border border-success/20' 
+                              : 'bg-bg-tertiary text-text-tertiary border border-border-default hover:border-brand hover:text-brand'
+                          }`}
+                        >
+                          {lead.is_contacted ? (
+                            <><CheckCircle2 className="h-3.5 w-3.5" /> Done</>
+                          ) : (
+                            <><Circle className="h-3.5 w-3.5" /> Pending</>
+                          )}
+                        </button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-64 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2 text-text-tertiary">
+                       <Filter className="h-8 w-8 opacity-20" />
+                       <p className="text-sm">No leads match your active filters.</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+      </div>
+    </div>
+  )
+}

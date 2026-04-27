@@ -1,0 +1,17 @@
+version: 1.0
+runtime: python3
+build:
+  commands:
+    build:
+      - pip install -r requirements.txt
+      - playwright install chromium
+run:
+  runtime: python3
+  command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+  network:
+    port: 8000
+  env:
+    - name: ENVIRONMENT
+      value: production
+# Note: Other sensitive environment variables (SUPABASE_URL, REDIS_URL, etc.) 
+# should be added via the AWS App Runner console or AWS CLI for security.

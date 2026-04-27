@@ -1,17 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { usePathname } from "next/navigation"
-import { 
-  Breadcrumb, 
-  BreadcrumbItem, 
-  BreadcrumbLink, 
-  BreadcrumbList, 
-  BreadcrumbPage, 
-  BreadcrumbSeparator 
-} from "@/components/ui/breadcrumb"
-import { Separator } from "@/components/ui/separator"
-import { SidebarTrigger } from "@/components/ui/sidebar"
+import { usePathname, useRouter } from "next/navigation"
+import Link from "next/link"
+import { Menu, LogOut, Bell, User as UserIcon, Settings } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 import { useStore } from "@/lib/store"
 import { 
   DropdownMenu, 
@@ -22,20 +15,32 @@ import {
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { User as UserIcon, LogOut } from "lucide-react"
-import { supabase } from "@/lib/supabase"
-import { useRouter } from "next/navigation"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { useUsage } from "@/hooks/api/useUsage"
 
-export function DashboardHeader() {
+const ROUTE_NAMES: Record<string, string> = {
+  chat: "Playground",
+  analytics: "Analytics",
+  leads: "Leads",
+  sources: "Data Sources",
+  qa: "Q&A Pairs",
+  suggestions: "Suggestions",
+  appearance: "Appearance",
+  actions: "Actions",
+  whatsapp: "WhatsApp Integration",
+  settings: "Settings"
+}
+
+export function DashboardHeader({ setMobileOpen }: { setMobileOpen?: (b: boolean) => void }) {
   const pathname = usePathname()
   const user = useStore((state) => state.user)
   const currentBot = useStore((state) => state.currentBot)
   const setUser = useStore((state) => state.setUser)
   const router = useRouter()
+  const { data: usage, isLoading } = useUsage()
 
-  // Generate dynamic breadcrumbs safely
   const buildBreadcrumbs = () => {
-    // If on bots root or dashboard root
     if (pathname === "/dashboard") {
       return [{ name: "Overview", href: "/dashboard", active: true }]
     }
@@ -43,14 +48,15 @@ export function DashboardHeader() {
       return [{ name: "My Bots", href: "/dashboard/bots", active: true }]
     }
 
-    // Dynamic routing checks for active bots
     const nodes = []
     if (pathname.includes("/dashboard/bots/")) {
       nodes.push({ name: "My Bots", href: "/dashboard/bots", active: false })
       
       if (currentBot) {
-        // e.g., /dashboard/bots/[id]/settings
-        const specificRouteMatch = pathname.split(`/${currentBot.id}/`)[1]
+        // Find if we are in a sub-route of the bot
+        const parts = pathname.split(`/${currentBot.id}`)
+        const specificRouteMatch = parts[1]?.replace(/^\//, '')
+        
         nodes.push({ 
           name: currentBot.name, 
           href: `/dashboard/bots/${currentBot.id}`, 
@@ -58,8 +64,8 @@ export function DashboardHeader() {
         })
         
         if (specificRouteMatch) {
-          // Capitalize first letter
-          const formatted = specificRouteMatch.charAt(0).toUpperCase() + specificRouteMatch.slice(1)
+          const routeKey = specificRouteMatch.split('/')[0]
+          const formatted = ROUTE_NAMES[routeKey] || (routeKey.charAt(0).toUpperCase() + routeKey.slice(1))
           nodes.push({
             name: formatted,
             href: pathname,
@@ -69,7 +75,6 @@ export function DashboardHeader() {
       }
     }
     
-    // Fallback if logic misses
     if (nodes.length === 0) {
        nodes.push({ name: "Dashboard", href: "/dashboard", active: true })
     }
@@ -85,58 +90,134 @@ export function DashboardHeader() {
     router.push("/login")
   }
 
+  const planName = usage?.plan_name || "trial"
+  const maxMessages = usage?.messages_limit || 50
+  const usedMessages = usage?.messages_used || 0
+  const isTrial = planName === "trial"
+  const trialDaysRemaining = usage?.trial_days_remaining || 0
+  
+  const usagePercentage = Math.min(100, Math.max(0, (usedMessages / maxMessages) * 100)) || 0
+
+  const getUsageColorClass = () => {
+    if (usagePercentage < 50) return "text-text-secondary"
+    if (usagePercentage < 100) return "text-warning"
+    return "text-danger"
+  }
+  const getProgressColorClass = () => {
+    if (usagePercentage < 50) return "bg-brand"
+    if (usagePercentage < 100) return "bg-warning"
+    return "bg-danger"
+  }
+
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between rounded-full border border-white/10 bg-zinc-900/60 backdrop-blur-2xl px-4 shadow-2xl transition-all ease-linear relative z-50">
-      <div className="flex items-center gap-2 px-4">
-        <SidebarTrigger className="-ml-1" />
-        <Separator orientation="vertical" className="mr-2 h-4" />
-        <Breadcrumb>
-          <BreadcrumbList>
-            {breadcrumbs.map((node, index) => (
-              <React.Fragment key={node.href}>
-                <BreadcrumbItem className="hidden md:block">
-                  {!node.active ? (
-                    <BreadcrumbLink href={node.href}>
-                      {node.name}
-                    </BreadcrumbLink>
-                  ) : (
-                    <BreadcrumbPage>{node.name}</BreadcrumbPage>
-                  )}
-                </BreadcrumbItem>
-                {index < breadcrumbs.length - 1 && (
-                  <BreadcrumbSeparator className="hidden md:block" />
-                )}
-              </React.Fragment>
-            ))}
-          </BreadcrumbList>
-        </Breadcrumb>
+    <header className="flex h-14 shrink-0 w-full items-center justify-between border-b border-border-default bg-bg-primary px-4 md:px-8 transition-all ease-linear relative z-30">
+      
+      {/* LEFT: Mobile Menu + Breadcrumbs */}
+      <div className="flex items-center gap-3">
+        <button 
+          onClick={() => setMobileOpen?.(true)}
+          className="md:hidden flex items-center justify-center text-text-secondary hover:text-text-primary h-8 w-8 rounded-md bg-bg-tertiary border border-border-default"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+
+        <div className="hidden sm:flex items-center text-sm">
+          {breadcrumbs.map((node, index) => (
+            <React.Fragment key={node.href}>
+              {index > 0 && (
+                <span className="mx-2 text-text-tertiary">/</span>
+              )}
+              {node.active ? (
+                <span className="text-text-primary font-medium">{node.name}</span>
+              ) : (
+                <Link href={node.href} className="text-text-secondary hover:text-text-primary transition-colors">
+                  {node.name}
+                </Link>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
       </div>
 
-      <div className="flex items-center gap-4 px-4">
+      {/* RIGHT: Actions & Profile */}
+      <div className="flex items-center gap-4">
+        
+        {/* Plan / Usage (Desktop Only) */}
+        <div className="hidden lg:flex items-center gap-4 mr-2">
+          {isTrial ? (
+            <div className={`text-xs font-medium px-2.5 py-1 rounded-full flex items-center gap-1.5 ${
+              trialDaysRemaining > 7 ? "bg-success/10 text-success" :
+              trialDaysRemaining > 3 ? "bg-warning/10 text-warning" : "bg-danger/10 text-danger"
+            }`}>
+              Trial: {trialDaysRemaining} days left
+            </div>
+          ) : (
+            <div className="flex flex-col items-end gap-1 min-w-[120px]">
+              <div className={`text-[10px] font-medium flex items-center gap-1.5 ${getUsageColorClass()}`}>
+                {usagePercentage >= 80 && usagePercentage < 100 && (
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-warning"></span>
+                  </span>
+                )}
+                {usagePercentage >= 100 ? "Limit reached" : `${usedMessages.toLocaleString()} / ${maxMessages.toLocaleString()} msg`}
+              </div>
+              <div className="h-1.5 w-full bg-bg-tertiary rounded-full overflow-hidden">
+                <div className={`h-full transition-all ${getProgressColorClass()}`} style={{ width: `${usagePercentage}%` }} />
+              </div>
+            </div>
+          )}
+          
+          <Link href="/pricing">
+            {usagePercentage >= 100 && !isTrial ? (
+              <Button size="sm" className="h-7 text-xs px-3">Upgrade</Button>
+            ) : (
+              <Badge variant={isTrial ? "outline" : "brand"} className="capitalize cursor-pointer hover:opacity-80 transition-opacity">
+                {planName}
+              </Badge>
+            )}
+          </Link>
+        </div>
+
+        {/* Notification Bell */}
+        <button className="relative text-text-secondary hover:text-text-primary transition-colors">
+          <Bell className="h-5 w-5" />
+          <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-brand"></span>
+        </button>
+
+        {/* User Dropdown */}
         <DropdownMenu>
-          <DropdownMenuTrigger className="focus-visible:ring-0 focus-visible:outline-none">
-            <Avatar className="h-8 w-8 cursor-pointer ring-2 ring-transparent transition-all hover:ring-indigo-100 relative group overflow-visible">
-              <AvatarFallback className="bg-indigo-100 text-indigo-700 font-semibold text-sm">
+          <DropdownMenuTrigger className="focus-visible:outline-none">
+            <Avatar className="h-8 w-8 cursor-pointer ring-2 ring-transparent transition-all border border-border-default hover:border-border-hover relative overflow-visible">
+              <AvatarFallback className="bg-bg-tertiary text-text-primary font-semibold text-sm">
                 {user?.email?.charAt(0).toUpperCase() || <UserIcon className="h-4 w-4" />}
               </AvatarFallback>
             </Avatar>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 mt-2">
-            <DropdownMenuLabel className="font-normal">
+            <DropdownMenuLabel className="font-normal border-b border-border-default pb-2">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">Logged in as</p>
-                <p className="text-xs leading-none text-muted-foreground truncate">
+                <p className="text-sm font-medium leading-none text-text-primary">Acccount</p>
+                <p className="text-xs leading-none text-text-secondary truncate mt-1">
                   {user?.email || "Unknown user"}
                 </p>
               </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:bg-red-50 focus:text-red-700 cursor-pointer">
+            
+            <Link href="/dashboard/settings">
+              <DropdownMenuItem className="cursor-pointer focus:bg-bg-tertiary focus:text-text-primary mt-1">
+                <Settings className="mr-2 h-4 w-4 text-text-secondary" />
+                <span>Settings</span>
+              </DropdownMenuItem>
+            </Link>
+
+            <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-danger focus:bg-danger/10 focus:text-danger mt-1">
               <LogOut className="mr-2 h-4 w-4" />
-              <span>Log out</span>
+              <span>Sign out</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
       </div>
     </header>
   )

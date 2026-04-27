@@ -4,6 +4,7 @@
 import { useEffect, useState, useRef } from "react"
 import { useParams } from "next/navigation"
 import { Send, Bot, Loader2 } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export default function WidgetApp() {
   const { slug } = useParams()
@@ -86,7 +87,8 @@ export default function WidgetApp() {
         id: crypto.randomUUID(), 
         role: 'assistant', 
         content: data.response || "Sorry, I couldn't process your request.", 
-        sources: data.sources || [] 
+        sources: data.sources || [],
+        confidence_score: data.confidence_score
       }])
     } catch (e) {
       setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: 'There was a network error processing your request.', sources: [] }])
@@ -95,7 +97,19 @@ export default function WidgetApp() {
     }
   }
 
-  if (loading || !appearance) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-slate-400 h-6 w-6" /></div>
+  if (loading || !appearance) return (
+    <div className="flex flex-col h-screen bg-slate-50 relative overflow-hidden font-sans animate-in fade-in duration-500">
+      <Skeleton className="h-[60px] w-full rounded-none bg-slate-200" />
+      <div className="flex-1 p-4 space-y-4 flex flex-col">
+        <Skeleton className="h-16 w-3/4 rounded-2xl bg-slate-200" />
+        <Skeleton className="h-16 w-2/3 rounded-2xl bg-slate-200 self-end" />
+        <Skeleton className="h-16 w-3/4 rounded-2xl bg-slate-200" />
+      </div>
+      <div className="p-3 border-t border-slate-200 bg-white">
+        <Skeleton className="h-10 w-full rounded-full bg-slate-200" />
+      </div>
+    </div>
+  )
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 relative overflow-hidden font-sans">
@@ -114,11 +128,19 @@ export default function WidgetApp() {
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-            <div 
-              className={`px-4 py-2.5 rounded-2xl max-w-[85%] text-[14.5px] leading-[1.4] ${msg.role === 'user' ? 'text-white rounded-br-sm shadow-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm'}`}
-              style={msg.role === 'user' ? { backgroundColor: appearance.theme_color } : {}}
-            >
-              {msg.content}
+            <div className="flex items-center gap-2 max-w-[85%]">
+              {msg.role === 'assistant' && msg.confidence_score !== undefined && (
+                <div 
+                  title={`Confidence: ${(msg.confidence_score * 100).toFixed(1)}%`}
+                  className={`w-2 h-2 rounded-full shrink-0 ${msg.confidence_score > 0.8 ? 'bg-green-500' : msg.confidence_score >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'}`} 
+                />
+              )}
+              <div 
+                className={`px-4 py-2.5 rounded-2xl text-[14.5px] leading-[1.4] ${msg.role === 'user' ? 'text-white rounded-br-sm shadow-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm text-left'}`}
+                style={msg.role === 'user' ? { backgroundColor: appearance.theme_color || '#10b981' } : {}}
+              >
+                {msg.content}
+              </div>
             </div>
             {msg.sources && msg.sources.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2 ml-1">
@@ -163,6 +185,13 @@ export default function WidgetApp() {
              <Send className="h-4 w-4 ml-[1px] mt-[1px]" />
           </button>
         </form>
+        {appearance.show_watermark !== false && (
+          <div className="mt-2 text-center">
+            <a href="https://wraft.ai" target="_blank" rel="noopener noreferrer" className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors font-medium flex items-center justify-center gap-1">
+              <Bot className="h-3 w-3" /> Powered by Wraft
+            </a>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -10,33 +10,47 @@
    Skipping validation of types
    Skipping linting
    Collecting page data ...
-   Generating static pages (0/10) ...
-   Generating static pages (2/10) 
-   Generating static pages (4/10) 
-   Generating static pages (7/10) 
- ✓ Generating static pages (10/10)
+   Generating static pages (0/12) ...
+   Generating static pages (3/12) 
+   Generating static pages (6/12) 
+   Generating static pages (9/12) 
+ ✓ Generating static pages (12/12)
    Finalizing page optimization ...
    Collecting build traces ...
 
 Route (app)                              Size     First Load JS
-┌ ○ /                                    5.34 kB        92.8 kB
-├ ○ /_not-found                          880 B          88.4 kB
-├ ○ /bots                                7.64 kB         133 kB
-├ ƒ /bots/[botId]                        142 B          87.6 kB
-├ ƒ /bots/[botId]/analytics              116 kB          256 kB
-├ ƒ /bots/[botId]/appearance             4.11 kB         112 kB
-├ ƒ /bots/[botId]/settings               4.77 kB         140 kB
-├ ƒ /bots/[botId]/sources                9.78 kB         119 kB
-├ ƒ /bots/[botId]/whatsapp               3.61 kB         112 kB
-├ ○ /bots/new                            142 B          87.6 kB
-├ ○ /dashboard                           2.14 kB         116 kB
-├ ○ /login                               3.8 kB          167 kB
-├ ○ /signup                              3.83 kB         167 kB
-└ ƒ /widget/[slug]                       3.08 kB        90.6 kB
+┌ ○ /                                    5.35 kB        92.9 kB
+├ ○ /_not-found                          883 B          88.4 kB
+├ ○ /bots                                3.21 kB         120 kB
+├ ƒ /bots/[botId]                        5.36 kB         114 kB
+├ ƒ /bots/[botId]/analytics              5.96 kB         230 kB
+├ ƒ /bots/[botId]/leads                  9.3 kB          118 kB
+├ ƒ /bots/[botId]/settings               6.95 kB         144 kB
+├ ƒ /bots/[botId]/sources                5.97 kB         143 kB
+├ ƒ /bots/[botId]/whatsapp               4.25 kB         113 kB
+├ ○ /dashboard                           6.44 kB         238 kB
+├ ○ /dashboard/billing                   42.7 kB         130 kB
+├ ○ /dashboard/bots                      4.08 kB         134 kB
+├ ƒ /dashboard/bots/[botId]              8.37 kB         138 kB
+├ ƒ /dashboard/bots/[botId]/actions      8.52 kB         130 kB
+├ ƒ /dashboard/bots/[botId]/analytics    6.9 kB          260 kB
+├ ƒ /dashboard/bots/[botId]/appearance   4.39 kB         113 kB
+├ ƒ /dashboard/bots/[botId]/chat         6.03 kB         111 kB
+├ ƒ /dashboard/bots/[botId]/leads        7.05 kB         144 kB
+├ ƒ /dashboard/bots/[botId]/qa           6.28 kB         127 kB
+├ ƒ /dashboard/bots/[botId]/settings     8.33 kB         145 kB
+├ ƒ /dashboard/bots/[botId]/sources      13.4 kB         150 kB
+├ ƒ /dashboard/bots/[botId]/suggestions  7.5 kB          130 kB
+├ ƒ /dashboard/bots/[botId]/whatsapp     3.9 kB          112 kB
+├ ○ /dashboard/bots/new                  156 B          87.7 kB
+├ ○ /login                               3.1 kB          108 kB
+├ ƒ /shared/[token]                      3.21 kB        99.8 kB
+├ ○ /signup                              3.16 kB         108 kB
+└ ƒ /widget/[slug]                       2.67 kB        99.2 kB
 + First Load JS shared by all            87.5 kB
-  ├ chunks/117-c651abe4aca4cbec.js       31.9 kB
-  ├ chunks/fd9d1056-5a410cbcdedf5480.js  53.7 kB
-  └ other shared chunks (total)          1.95 kB
+  ├ chunks/2117-cc5b6ba692021a6a.js      31.9 kB
+  ├ chunks/fd9d1056-4bdd933eddeb0fd9.js  53.7 kB
+  └ other shared chunks (total)          1.96 kB
 
 
 ƒ Middleware                             26.4 kB

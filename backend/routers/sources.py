@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
 import urllib.parse
 from database import get_db
 from middleware.auth import get_current_user
 from redis_client import get_redis
-from ingestion.worker import enqueue_ingestion
+from ingestion.pipeline import run_ingestion_pipeline
 from routers.bots import verify_bot_ownership
+from services.limits import check_data_source_limit, check_feature_access
 
 router = APIRouter()
 
@@ -22,24 +23,15 @@ class SitemapSourceCreate(BaseModel):
     name: str
     url: str
 
-
-async def check_data_source_limit(bot_id: str, user, db):
-    # Fetch user plan to check limits
-    plan_res = await db.table("profiles").select("plans(*)").eq("id", user.id).single().execute()
-    profile = plan_res.data
-    plan = profile.get("plans") if profile else None
-    
-    if plan and plan.get("max_sources") is not None:
-        source_count_res = await db.table("data_sources").select("id", count="exact").eq("bot_id", bot_id).execute()
-        current_sources = source_count_res.count if source_count_res.count is not None else 0
-        if current_sources >= plan.get("max_sources"):
-            raise HTTPException(status_code=403, detail="Data source limit reached for your plan")
+class SourceUpdate(BaseModel):
+    auto_retrain: Optional[bool] = None
+    retrain_frequency: Optional[str] = None
 
 
 @router.post("/{bot_id}/sources/text")
-async def create_text_source(bot_id: str, body: TextSourceCreate, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
+async def create_text_source(bot_id: str, body: TextSourceCreate, background_tasks: BackgroundTasks, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
     await verify_bot_ownership(bot_id, user, db)
-    await check_data_source_limit(bot_id, user, db)
+    await check_data_source_limit(user.id, bot_id, db)
     
     insert_res = await db.table("data_sources").insert({
         "bot_id": bot_id,
@@ -50,15 +42,15 @@ async def create_text_source(bot_id: str, body: TextSourceCreate, user=Depends(g
     }).execute()
     
     new_source = insert_res.data[0]
-    await enqueue_ingestion(new_source["id"], redis)
+    background_tasks.add_task(run_ingestion_pipeline, new_source["id"], db, redis)
     
     return new_source
 
 
 @router.post("/{bot_id}/sources/url")
-async def create_url_source(bot_id: str, body: UrlSourceCreate, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
+async def create_url_source(bot_id: str, body: UrlSourceCreate, background_tasks: BackgroundTasks, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
     await verify_bot_ownership(bot_id, user, db)
-    await check_data_source_limit(bot_id, user, db)
+    await check_data_source_limit(user.id, bot_id, db)
     
     # Validate url
     parsed = urllib.parse.urlparse(body.url)
@@ -74,15 +66,16 @@ async def create_url_source(bot_id: str, body: UrlSourceCreate, user=Depends(get
     }).execute()
     
     new_source = insert_res.data[0]
-    await enqueue_ingestion(new_source["id"], redis)
+    background_tasks.add_task(run_ingestion_pipeline, new_source["id"], db, redis)
     
     return new_source
 
 
 @router.post("/{bot_id}/sources/sitemap")
-async def create_sitemap_source(bot_id: str, body: SitemapSourceCreate, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
+async def create_sitemap_source(bot_id: str, body: SitemapSourceCreate, background_tasks: BackgroundTasks, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
     await verify_bot_ownership(bot_id, user, db)
-    await check_data_source_limit(bot_id, user, db)
+    await check_feature_access(user.id, "sitemap_source", db)
+    await check_data_source_limit(user.id, bot_id, db)
 
     parsed = urllib.parse.urlparse(body.url)
     if not parsed.scheme or not parsed.netloc:
@@ -97,14 +90,14 @@ async def create_sitemap_source(bot_id: str, body: SitemapSourceCreate, user=Dep
     }).execute()
     
     new_source = insert_res.data[0]
-    await enqueue_ingestion(new_source["id"], redis)
+    background_tasks.add_task(run_ingestion_pipeline, new_source["id"], db, redis)
     
     return new_source
 
 @router.post("/{bot_id}/sources/pdf")
-async def create_pdf_source(bot_id: str, file: UploadFile = File(...), user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
+async def create_pdf_source(bot_id: str, background_tasks: BackgroundTasks, file: UploadFile = File(...), user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
     await verify_bot_ownership(bot_id, user, db)
-    await check_data_source_limit(bot_id, user, db)
+    await check_data_source_limit(user.id, bot_id, db)
 
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="File must be a PDF")
@@ -119,31 +112,34 @@ async def create_pdf_source(bot_id: str, file: UploadFile = File(...), user=Depe
     if not file_bytes.startswith(b"%PDF"):
         raise HTTPException(status_code=400, detail="Invalid PDF file")
 
-    # Insert data_source first to get an ID. Using dummy storage_path until we have the ID,
-    # but wait, we need the ID to name the file!
-    # Let's insert first, then update storage path, or we can use a UUID for the file if we wanted.
-    # Better: insert with temporary or predicted path.
-    insert_res = await db.table("data_sources").insert({
-        "bot_id": bot_id,
-        "type": "pdf",
-        "name": file.filename,
-        "status": "pending"
-    }).execute()
-    
-    source_id = insert_res.data[0]["id"]
+    import uuid
+    source_id = str(uuid.uuid4())
     storage_path = f"{user.id}/{bot_id}/{source_id}.pdf"
     
-    # Upload to Supabase Storage. Use generic bucket "documents"
-    await db.storage.from_("documents").upload(storage_path, file_bytes)
-    
-    # Update data_source with storage path
-    source_upd_res = await db.table("data_sources").update({
-        "storage_path": storage_path
-    }).eq("id", source_id).execute()
-
-    await enqueue_ingestion(source_id, redis)
-    
-    return source_upd_res.data[0]
+    try:
+        # 1. Upload to Storage cluster first securely
+        await db.storage.from_("documents").upload(storage_path, file_bytes)
+        
+        # 2. Map strictly wrapped execution dynamically (single insert)
+        insert_res = await db.table("data_sources").insert({
+            "id": source_id,
+            "bot_id": bot_id,
+            "type": "pdf",
+            "name": file.filename,
+            "storage_path": storage_path,
+            "status": "pending"
+        }).execute()
+        
+        background_tasks.add_task(run_ingestion_pipeline, source_id, db, redis)
+        return insert_res.data[0]
+        
+    except Exception as e:
+        # Zero-Zombie Clean Architecture Database Rollback - Ensure storage is cleaned if DB fails
+        try:
+            await db.storage.from_("documents").remove([storage_path])
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Storage cluster failed. Rollback complete. ({str(e)})")
 
 @router.get("/{bot_id}/sources")
 async def list_sources(bot_id: str, user=Depends(get_current_user), db=Depends(get_db)):
@@ -155,6 +151,12 @@ async def list_sources(bot_id: str, user=Depends(get_current_user), db=Depends(g
 @router.delete("/{bot_id}/sources/{source_id}", status_code=204)
 async def delete_source(bot_id: str, source_id: str, user=Depends(get_current_user), db=Depends(get_db)):
     await verify_bot_ownership(bot_id, user, db)
+    
+    # Invalidate cache locally
+    from redis_client import get_redis
+    from services.cache import invalidate_bot_cache
+    redis_conn = await get_redis()
+    await invalidate_bot_cache(bot_id, redis_conn)
     
     # Deleting the source handles cascade to chunks via DB schema constraints
     await db.table("data_sources").delete().eq("bot_id", bot_id).eq("id", source_id).execute()
@@ -169,3 +171,40 @@ async def get_source_status(bot_id: str, source_id: str, user=Depends(get_curren
         raise HTTPException(status_code=404, detail="Source not found")
         
     return res.data
+
+@router.patch("/{bot_id}/sources/{source_id}")
+async def update_source(bot_id: str, source_id: str, body: SourceUpdate, user=Depends(get_current_user), db=Depends(get_db)):
+    await verify_bot_ownership(bot_id, user, db)
+    
+    update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not update_data:
+        return {"status": "ok"}
+        
+    # Standard DB structure constraints securely pushing boolean configurations
+    upd_res = await db.table("data_sources").update(update_data).eq("bot_id", bot_id).eq("id", source_id).execute()
+    if not upd_res.data:
+        raise HTTPException(status_code=404, detail="Source not found")
+        
+    return upd_res.data[0]
+
+@router.post("/{bot_id}/sources/{source_id}/retrain")
+async def retrain_source(bot_id: str, source_id: str, background_tasks: BackgroundTasks, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
+    await verify_bot_ownership(bot_id, user, db)
+
+    res = await db.table("data_sources").select("*").eq("bot_id", bot_id).eq("id", source_id).single().execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    source = res.data
+    if source.get("type") not in ["url", "sitemap"]:
+        raise HTTPException(status_code=400, detail="Only URL and Sitemap sources can be automatically retrained")
+
+    if source.get("status") in ["pending", "processing"]:
+        raise HTTPException(status_code=400, detail="Source is currently processing")
+
+    try:
+        await db.table("data_sources").update({"status": "pending"}).eq("id", source_id).execute()
+        background_tasks.add_task(run_ingestion_pipeline, source_id, db, redis)
+        return {"message": "Retraining started"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to queue structural block natively: {str(e)}")

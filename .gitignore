@@ -41,3 +41,6 @@ logs/
 # IDEs
 .vscode/
 .idea/
+
+# Exclude admin
+admin/

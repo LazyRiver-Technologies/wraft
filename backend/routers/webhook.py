@@ -4,8 +4,9 @@ from typing import Optional
 from database import get_db
 from redis_client import get_redis
 from config import settings
-from services.whatsapp import verify_meta_signature, parse_whatsapp_message
-from services.whatsapp_worker import enqueue_whatsapp_message
+from services.whatsapp import verify_meta_signature, parse_whatsapp_message, process_whatsapp_job
+from services.limits import get_profile_with_plan
+from fastapi import BackgroundTasks
 import json
 
 router = APIRouter()
@@ -49,6 +50,7 @@ async def verify_whatsapp_webhook(
 async def handle_whatsapp_webhook(
     bot_slug: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     db=Depends(get_db),
     redis=Depends(get_redis)
 ):
@@ -57,6 +59,17 @@ async def handle_whatsapp_webhook(
     """
     raw_payload_bytes = await request.body()
     signature_header = request.headers.get("x-hub-signature-256", "")
+    
+    bot_res = await db.table("bots").select("id, owner_id").eq("slug", bot_slug).single().execute()
+    if not bot_res.data:
+         return Response(status_code=200)
+         
+    bot_id = bot_res.data["id"]
+    owner_id = bot_res.data["owner_id"]
+    
+    profile = await get_profile_with_plan(owner_id, db)
+    if profile.get("plans", {}).get("name") == "trial":
+        return Response(status_code=200)
     
     # 1. Verification block - Meta explicitly warns not to return 4xx to webhooks if processing errors out
     try:
@@ -88,22 +101,9 @@ async def handle_whatsapp_webhook(
          
     await redis.set(dedup_key, "1", ex=86400) # Expire duplicate key linearly at 24 hours
 
-    # 4. Resolve exact Bot ID linking
-    bot_res = await db.table("bots").select("id").eq("slug", bot_slug).single().execute()
-    if not bot_res.data:
-         # Missing bot, drop silently
-         return Response(status_code=200)
-         
-    bot_id = bot_res.data["id"]
-
-    # 5. Enqueue Heavy Duty Work to BullMQ mapping natively under 5 seconds!
-    job_payload = {
-        "bot_slug": bot_slug,
-        "bot_id": bot_id,
-        "session_id": from_number,
-        "message": message_text
-    }
-    await enqueue_whatsapp_message(job_payload)
+    # 4. Enqueue Heavy Duty Work to BullMQ mapping natively under 5 seconds!
+    
+    background_tasks.add_task(process_whatsapp_job, bot_slug, bot_id, from_number, message_text, db, redis)
 
     # 6. Webhooks acknowledge rapidly
     return Response(content="success", status_code=200)

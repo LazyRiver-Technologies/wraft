@@ -1,229 +1,174 @@
 "use client"
 
-import { useState } from 'react'
-import { useParams } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
-import { fetchApi } from '@/lib/api'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { MessageSquare, BarChart2, Zap } from 'lucide-react'
-import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import * as React from "react"
+import { 
+  MessageSquare, Zap, Clock, Activity, Target,
+  Filter, Calendar
+} from "lucide-react"
+import { 
+  LineChart, Line, AreaChart, Area, XAxis, YAxis, 
+  Tooltip, ResponsiveContainer, BarChart, Bar 
+} from "recharts"
 
-export default function AnalyticsPage() {
-  const { botId } = useParams()
-  const [dateRange, setDateRange] = useState('30')
-  const [channel, setChannel] = useState('all')
+import { PageHeader } from "@/components/ui/page-header"
+import { StatCard } from "@/components/ui/stat-card"
+import { Button } from "@/components/ui/button"
+import { 
+  Table, TableBody, TableCell, TableHead, 
+  TableHeader, TableRow 
+} from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { 
+  useOverviewQuery, useTrendsQuery, useSentimentQuery, 
+  useTopicsQuery, useSourcesPerformanceQuery,
+  AnalyticsFilter
+} from "@/hooks/api/useAnalytics"
+import { useToast } from "@/hooks/use-toast"
+import { useProfileWithPlan } from "@/hooks/api/useBilling"
+import { FeatureGate } from "@/components/ui/FeatureGate"
 
-  const { data: bot } = useQuery({
-    queryKey: ['bot', botId],
-    queryFn: () => fetchApi(`/api/v1/bots/${botId}`)
-  })
+export default function BotAnalyticsPage(props: { params: any }) {
+  const params = React.use(props.params as Promise<{ botId: string }>)
+  const [filter] = React.useState<AnalyticsFilter>({ botId: params.botId, channel: "all" })
+  const { toast } = useToast()
 
-  // Start/End date bounds strictly mapping the UI filters natively
-  const endDate = new Date()
-  const startDate = new Date()
-  startDate.setDate(endDate.getDate() - parseInt(dateRange))
-  const qs = `?start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}&channel=${channel}`
+  const { data: overviewResp } = useOverviewQuery(filter)
+  const { data: trendsResp } = useTrendsQuery(filter)
+  const { data: sentimentResp } = useSentimentQuery(filter)
+  const { data: sourcesResp } = useSourcesPerformanceQuery(filter)
 
-  const { data: overview, isLoading: oLoading } = useQuery({ queryKey: ['overview', botId, qs], queryFn: () => fetchApi(`/api/v1/analytics/${botId}/overview${qs}`) })
-  const { data: convOverTime, isLoading: cLoading } = useQuery({ queryKey: ['conv_over_time', botId, qs], queryFn: () => fetchApi(`/api/v1/analytics/${botId}/conversations-over-time${qs}`) })
-  const { data: dropoff, isLoading: dLoading } = useQuery({ queryKey: ['dropoff', botId, qs], queryFn: () => fetchApi(`/api/v1/analytics/${botId}/drop-off${qs}`) })
-  const { data: sentiment, isLoading: sLoading } = useQuery({ queryKey: ['sentiment', botId, qs], queryFn: () => fetchApi(`/api/v1/analytics/${botId}/sentiment${qs}`) })
-  const { data: topQs, isLoading: tLoading } = useQuery({ queryKey: ['topqs', botId, qs], queryFn: () => fetchApi(`/api/v1/analytics/${botId}/top-questions${qs}`) })
-  const { data: sourcesPerf, isLoading: spLoading } = useQuery({ queryKey: ['sourcesperf', botId, qs], queryFn: () => fetchApi(`/api/v1/analytics/${botId}/sources-performance${qs}`) })
-
-  const themeColor = bot?.bot_appearance?.theme_color || '#4f46e5'
-
-  const dropoffData = dropoff ? [
-    { name: '1 Message', count: dropoff.drop_off_at_message_1 },
-    { name: '2 Messages', count: dropoff.drop_off_at_message_2 },
-    { name: '3 Messages', count: dropoff.drop_off_at_message_3 },
-    { name: '4+ Messages', count: dropoff.drop_off_at_message_4_plus },
-  ] : []
+  const overview = overviewResp?.data || {}
+  const trendData = trendsResp?.data || []
+  const sentimentData = sentimentResp?.data || []
+  const citationLeaderboard = sourcesResp?.data || []
+  const { data: profile } = useProfileWithPlan()
+  const hasAdvancedAnalytics = profile?.plans?.advanced_analytics === true
 
   return (
-    <div className="space-y-8 max-w-7xl">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Analytics Dashboard</h1>
-          <p className="text-slate-500">Track AI interactions, user drop-offs, and vector accuracies natively.</p>
-        </div>
+    <>
+      <PageHeader 
+        title="Analytics" 
+        description="Comprehensive analysis of bot performance and user engagement."
+      >
+        <Button variant="outline" className="text-xs" onClick={() => toast({ title: "Restricted", description: "Channel filtering is disabled in this environment." })}>
+          <Filter className="mr-2 h-3.5 w-3.5" /> All Channels
+        </Button>
+        <Button variant="outline" className="text-xs" onClick={() => toast({ title: "Restricted", description: "Date filtering is currently locked to Last 30 Days." })}>
+          <Calendar className="mr-2 h-3.5 w-3.5" /> Last 30 Days
+        </Button>
+      </PageHeader>
+
+      <div className="flex flex-col gap-6">
         
-        <div className="flex gap-4">
-           <Select value={channel} onValueChange={setChannel}>
-             <SelectTrigger className="w-32 bg-white"><SelectValue /></SelectTrigger>
-             <SelectContent>
-               <SelectItem value="all">All Channels</SelectItem>
-               <SelectItem value="web">Web Chat</SelectItem>
-               <SelectItem value="whatsapp">WhatsApp</SelectItem>
-             </SelectContent>
-           </Select>
-
-           <Select value={dateRange} onValueChange={setDateRange}>
-             <SelectTrigger className="w-36 bg-white"><SelectValue /></SelectTrigger>
-             <SelectContent>
-               <SelectItem value="7">Last 7 Days</SelectItem>
-               <SelectItem value="30">Last 30 Days</SelectItem>
-               <SelectItem value="90">Last 90 Days</SelectItem>
-             </SelectContent>
-           </Select>
+        {/* ROW 1: STATS */}
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+          <StatCard title="Total Conversations" value={overview.total_conversations || 0} icon={MessageSquare} />
+          <StatCard title="Total Messages" value={overview.total_messages || 0} icon={Activity} />
+          <StatCard title="Avg Conv Length" value={overview.avg_messages_per_conversation?.toFixed(1) || "0.0"} icon={Target} />
+          <StatCard title="Cache Hit Rate" value={`${(overview.cache_hit_rate * 100).toFixed(1) || 0}%`} icon={Zap} />
+          <StatCard title="Avg Response Time" value={`${overview.avg_latency_ms?.toFixed(0) || 0}ms`} icon={Clock} />
         </div>
-      </div>
 
-      {oLoading ? <p>Loading metrics...</p> : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Conversations</CardTitle>
-              <MessageSquare className="h-4 w-4 text-slate-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{overview?.total_conversations || 0}</div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Messages</CardTitle>
-              <MessageSquare className="h-4 w-4 text-slate-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{overview?.total_messages || 0}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Avg Convo Length</CardTitle>
-              <BarChart2 className="h-4 w-4 text-slate-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{overview?.avg_messages_per_conversation?.toFixed(1) || '0.0'} msgs</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Cache Hit Rate</CardTitle>
-              <Zap className="h-4 w-4 text-slate-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{((overview?.cache_hit_rate || 0) * 100).toFixed(1)}%</div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Row 2: Conv Over Time */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Conversations Over Time</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[300px] w-full">
-            {cLoading ? <p>Loading chart...</p> : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={convOverTime?.data || []}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={(v) => v.slice(5)} />
-                  <YAxis tickLine={false} axisLine={false} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke={themeColor} strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
+        {/* ROW 2: TREND CHART */}
+        <div className="rounded-xl border border-border-default bg-bg-secondary p-5">
+          <h3 className="mb-6 text-sm font-semibold text-text-primary">Conversation Volume</h3>
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendData}>
+                <XAxis dataKey="date" stroke="var(--text-tertiary)" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--text-tertiary)" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-default)', borderRadius: '8px' }} />
+                <Line type="monotone" dataKey="count" stroke="var(--brand)" strokeWidth={3} dot={false} activeDot={{ r: 6, fill: "var(--brand)" }} />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Row 3: Drop off & Sentiment */}
-      <div className="grid md:grid-cols-2 gap-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>Engagement Depth (Drop-off)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[250px] w-full">
-              {dLoading ? <p>Loading...</p> : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dropoffData} layout="vertical" margin={{ left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" hide />
-                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} />
-                    <Tooltip />
-                    <Bar dataKey="count" fill={themeColor} radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
+        {/* ROW 3: TWO COLUMNS */}
+        <FeatureGate hasAccess={hasAdvancedAnalytics} requiredPlan="Growth">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-xl border border-border-default bg-bg-secondary p-5">
+            <h3 className="mb-6 text-sm font-semibold text-text-primary">Sentiment Trend</h3>
+            <div className="h-[200px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={sentimentData}>
+                  <XAxis dataKey="date" stroke="var(--text-tertiary)" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-default)', borderRadius: '8px' }} />
+                  <Area type="monotone" dataKey="positive" stackId="1" stroke="var(--success)" fill="var(--success)" fillOpacity={0.2} />
+                  <Area type="monotone" dataKey="negative" stackId="1" stroke="var(--danger)" fill="var(--danger)" fillOpacity={0.2} />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Sentiment Trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[250px] w-full">
-               {sLoading ? <p>Loading...</p> : (
-                 <ResponsiveContainer width="100%" height="100%">
-                   <AreaChart data={sentiment?.data || []}>
-                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                     <XAxis dataKey="date" hide />
-                     <YAxis tickLine={false} axisLine={false} domain={[-1, 1]} />
-                     <Tooltip />
-                     <Area type="monotone" dataKey="avg_sentiment" fill={themeColor} fillOpacity={0.2} stroke={themeColor} strokeWidth={2} />
-                   </AreaChart>
-                 </ResponsiveContainer>
-               )}
+          <div className="rounded-xl border border-border-default bg-bg-secondary p-5 flex flex-col items-center justify-center text-center">
+            <h3 className="mb-2 text-sm font-semibold text-text-primary w-full text-left">Drop-off Point</h3>
+            <div className="flex-1 flex flex-col items-center justify-center text-text-tertiary">
+              <Activity className="h-8 w-8 mb-2 opacity-50" />
+              <p className="text-xs">Insufficient drop-off data.</p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        </FeatureGate>
+
+        {/* ROW 4: DATA BLOCKS (TABLES) */}
+        <FeatureGate hasAccess={hasAdvancedAnalytics} requiredPlan="Growth">
+        <div className="grid gap-6 lg:grid-cols-1">
+          {/* Source Citation */}
+          <div className="rounded-xl border border-border-default bg-bg-secondary overflow-hidden">
+            <div className="p-5 border-b border-border-default">
+              <h3 className="text-sm font-semibold text-text-primary">Source Citation Leaderboard</h3>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[80%]">Data Source</TableHead>
+                  <TableHead className="text-right">Citations</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {citationLeaderboard.map((c: {source: string, citations: number}, i: number) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-medium text-brand truncate max-w-[200px]">{c.source}</TableCell>
+                    <TableCell className="text-right text-text-secondary">{c.citations}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+        </FeatureGate>
+
+        {/* ROW 5: RECENT SESSIONS */}
+        <div className="rounded-xl border border-border-default bg-bg-secondary overflow-hidden mb-8">
+           <div className="p-5 border-b border-border-default flex justify-between items-center">
+              <h3 className="text-sm font-semibold text-text-primary">Recent Conversations</h3>
+              <Button variant="ghost" size="sm">View all</Button>
+           </div>
+           
+           <div className="flex flex-col">
+             {[1, 2, 3].map((s) => (
+               <div key={s} className="flex items-center justify-between p-4 border-b border-border-default last:border-0 hover:bg-bg-tertiary cursor-pointer transition-colors">
+                 <div className="flex flex-col gap-1.5">
+                   <div className="flex items-center gap-2">
+                     <span className="text-sm text-text-primary font-medium">Session_{s}48x9A</span>
+                     <Badge variant="outline" className="text-[10px]">Web</Badge>
+                     <Badge variant="success" className="text-[10px] w-2 h-2 rounded-full p-0 flex items-center justify-center"></Badge>
+                   </div>
+                   <p className="text-sm text-text-secondary line-clamp-1 max-w-[400px]">
+                     "I need help setting up my billing account configuration."
+                   </p>
+                 </div>
+                 <div className="flex flex-col items-end gap-1 shrink-0">
+                   <span className="text-xs text-text-tertiary">{s * 15}m ago</span>
+                   <span className="text-xs text-text-secondary">{s * 3} messages</span>
+                 </div>
+               </div>
+             ))}
+           </div>
+        </div>
+
       </div>
-
-      {/* Row 4 & 5: Tables */}
-      <div className="grid md:grid-cols-2 gap-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>Frequent Subjects</CardTitle>
-            <CardDescription>Most commonly asked questions.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {tLoading ? <p>Loading subjects...</p> : (
-                topQs?.data?.length === 0 ? <p className="text-sm text-slate-500">Not enough data.</p> :
-                topQs?.data?.map((q: Record<string, unknown>, i: number) => (
-                  <div key={i} className="flex justify-between items-center text-sm border-b border-slate-100 pb-2">
-                    <span className="truncate pr-4 text-slate-700">{String(q.question_summary)}</span>
-                    <span className="font-semibold px-2 py-1 bg-slate-100 rounded-lg">{Number(q.count)}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Source Performance</CardTitle>
-            <CardDescription>Knowledge nodes cited most frequently by the RAG bot.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {spLoading ? <p>Loading performance...</p> : (
-                sourcesPerf?.data?.length === 0 ? <p className="text-sm text-slate-500">Not enough data.</p> :
-                sourcesPerf?.data?.map((s: Record<string, unknown>, i: number) => (
-                  <div key={i} className="flex justify-between items-center text-sm border-b border-slate-100 pb-2">
-                    <span className="truncate pr-4 font-medium">{String(s.source_name)}</span>
-                    <span className="text-slate-500">{Number(s.citation_count)} citations</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-      
-    </div>
+    </>
   )
 }

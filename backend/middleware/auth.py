@@ -20,3 +20,16 @@ async def get_current_user(authorization: str = Header(None), db=Depends(get_db)
         raise HTTPException(status_code=401, detail="Invalid token")
         
     return user_resp.user
+
+async def get_admin_user(authorization: str = Header(None), db=Depends(get_db)):
+    """
+    Validates user and additionally verifies they have admin privileges
+    by checking the `is_admin` flag on their profile.
+    """
+    user = await get_current_user(authorization, db)
+    
+    profile_resp = await db.table("profiles").select("is_admin").eq("id", user.id).single().execute()
+    if not profile_resp.data or not profile_resp.data.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Forbidden: Admin access required")
+        
+    return user

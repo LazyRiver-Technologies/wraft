@@ -1,38 +1,33 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { type NextRequest } from 'next/server'
+import { updateSession } from '@/utils/supabase/middleware'
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
-  
-  // Since we rely on Zustand (client-side) for active token memory according to specs,
-  // we proxy standard Supabase local session persistence checks to cookies. 
-  // For a strictly robust Edge middleware check, we usually read cookies bounded by Supabase JS.
-  // We'll look for a generic "sb-access-token" or similar cookie you can set on login,
-  // or simply the universal "sb-refresh-token".
-  
-  const hasSession = request.cookies.getAll().some(c => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'))
-  
-  // Custom fallback: you might set `app_auth_token` physically into cookies during login 
-  // to make this middleware seamlessly generic if standard Supabase localstorage is used.
-  const hasCustomAuthCookie = request.cookies.has('sb-access-token')
+  // Update session natively synchronizes standard Supabase JS Auth Cookies via SSR
+  // and natively refreshes expired tokens inside the middleware response dynamically.
+  const { supabaseResponse, user } = await updateSession(request)
 
-  const isAuthenticated = hasSession || hasCustomAuthCookie
+  const { pathname } = request.nextUrl
+  const isAuthenticated = !!user
 
   // Protect Dashboard
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/bots')) {
     if (!isAuthenticated) {
-      return NextResponse.redirect(new URL('/login', request.url))
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      return Response.redirect(url)
     }
   }
 
   // Redirect away from Auth links if logged in
   if (pathname.startsWith('/login') || pathname.startsWith('/signup')) {
     if (isAuthenticated) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return Response.redirect(url)
     }
   }
 
-  return NextResponse.next()
+  return supabaseResponse
 }
 
 export const config = {

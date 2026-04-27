@@ -1,202 +1,350 @@
 "use client"
 
-import { useState } from 'react'
-import { useParams } from 'next/navigation'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchApi } from '@/lib/api'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
-import { useToast } from '@/hooks/use-toast'
-import { Trash2, FileText, Globe, UploadCloud, Loader2 } from 'lucide-react'
+import * as React from "react"
+import { useState } from "react"
+import { 
+  FileText, Globe, Map, Type, Trash2, ChevronDown, RefreshCw, AlertCircle, Plus, Loader2
+} from "lucide-react"
 
-function StatusBadge({ status }: { status: string }) {
-  if (status === 'ready') return <Badge className="bg-emerald-500 hover:bg-emerald-600">Ready</Badge>
-  if (status === 'pending') return <Badge className="bg-yellow-500 hover:bg-yellow-600">Pending</Badge>
-  if (status === 'processing') return <Badge className="bg-blue-500 hover:bg-blue-600 animate-pulse">Processing <Loader2 className="ml-1 h-3 w-3 animate-spin inline" /></Badge>
-  if (status === 'failed') return <Badge variant="destructive">Failed</Badge>
-  return <Badge variant="outline">{status}</Badge>
-}
+import { PageHeader } from "@/components/ui/page-header"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useSources, useDeleteSource, useRetrainSource, useUpdateSource, useCreateSource } from "@/hooks/api/useSources"
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu"
+import { useToast } from "@/hooks/use-toast"
 
-interface Source {
-  id: string;
-  type: string;
-  name: string;
-  status: string;
-  chunk_count?: number;
-  error_msg?: string;
-}
+type SourceModalType = 'pdf' | 'url' | 'sitemap' | 'text' | null;
 
-export default function SourcesPage() {
-  const { botId } = useParams()
+export default function BotSourcesPage(props: { params: any }) {
+  const params = React.use(props.params as Promise<{ botId: string }>)
+  const { data: sourcesResp, isLoading } = useSources(params.botId)
+  const sources = sourcesResp || []
   const { toast } = useToast()
-  const queryClient = useQueryClient()
   
-  const [url, setUrl] = useState('')
-  const [sitemap, setSitemap] = useState('')
-  const [textName, setTextName] = useState('')
-  const [text, setText] = useState('')
-  const [file, setFile] = useState<File | null>(null)
+  const deleteSource = useDeleteSource()
+  const retrainSource = useRetrainSource()
+  const updateSource = useUpdateSource()
+  const createSource = useCreateSource()
 
-  const { data: sources, isLoading } = useQuery({
-    queryKey: ['sources', botId],
-    queryFn: () => fetchApi(`/api/v1/bots/${botId}/sources`),
-    refetchInterval: (query) => {
-      // Poll every 3s if any source is pending or processing
-      const hasProcessing = (query.state.data as Source[])?.some((s) => s.status === 'pending' || s.status === 'processing')
-      return hasProcessing ? 3000 : false
-    }
-  })
-
-  // Add Link/Sitemap/Text
-  const { mutate: addSource, isPending: addingSource } = useMutation({
-    mutationFn: (payload: Record<string, unknown>) => {
-      const { type, ...data } = payload;
-      return fetchApi(`/api/v1/bots/${botId}/sources/${type}`, {
-        method: "POST",
-        body: JSON.stringify(data)
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sources', botId] })
-      toast({ title: "Success", description: "Source queued for processing." })
-      setUrl(''); setSitemap(''); setTextName(''); setText('')
-    },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" })
-  })
-
-  // Upload PDF
-  const { mutate: uploadFile, isPending: uploading } = useMutation({
-    mutationFn: async () => {
-      if (!file) throw new Error("No file selected")
-      const formData = new FormData()
-      formData.append('file', file)
-      
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/bots/${botId}/sources/pdf`, {
-        method: "POST",
-        body: formData,
-        headers: {
-           // Let browser set content-type with boundary automatically for form-data
-          'Authorization': `Bearer ${useStore.getState().token}`
-        }
+  const [activeModal, setActiveModal] = useState<SourceModalType>(null)
+  
+  // Modal states
+  const [urlInput, setUrlInput] = useState("")
+  const [textName, setTextName] = useState("")
+  const [textContent, setTextContent] = useState("")
+  const [fileInput, setFileInput] = useState<File | null>(null)
+  
+  const handleDelete = (sourceId: string) => {
+    if (confirm("Permanently delete this data source?")) {
+      deleteSource.mutate({ botId: params.botId, sourceId }, {
+        onSuccess: () => toast({ title: "Deleted", description: "Source removed successfully." })
       })
-      if (!res.ok) throw new Error("Upload failed")
-      return res.json()
-    },
-    onSuccess: () => {
-       queryClient.invalidateQueries({ queryKey: ['sources', botId] })
-       toast({ title: "Success", description: "File uploaded and queued." })
-       setFile(null)
-       // Reset standard input strictly
-       if (typeof document !== 'undefined') {
-          const el = document.getElementById('file-upload') as HTMLInputElement
-          if (el) el.value = ''
-       }
-    },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" })
-  })
+    }
+  }
+  
+  const handleRetrain = (sourceId: string) => {
+    retrainSource.mutate({ botId: params.botId, sourceId }, {
+      onSuccess: () => toast({ title: "Retraining started", description: "The AI is relearning this source." })
+    })
+  }
+  
+  const handleToggleRetrain = (sourceId: string, checked: boolean) => 
+    updateSource.mutate({ botId: params.botId, sourceId, options: { auto_retrain: checked } })
+  
+  const resetModal = () => {
+    setActiveModal(null)
+    setUrlInput("")
+    setTextName("")
+    setTextContent("")
+    setFileInput(null)
+  }
 
-  const { mutate: deleteSource } = useMutation({
-    mutationFn: (sourceId: string) => fetchApi(`/api/v1/bots/${botId}/sources/${sourceId}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sources', botId] }),
-  })
+  const handleCreate = () => {
+    if (!activeModal) return;
+
+    let payload: any;
+    
+    if (activeModal === 'url' || activeModal === 'sitemap') {
+      if (!urlInput.trim()) return toast({ title: "Error", description: "URL is required.", variant: "destructive" });
+      payload = { url: urlInput.trim() };
+    } else if (activeModal === 'text') {
+      if (!textName.trim() || !textContent.trim()) return toast({ title: "Error", description: "Name and content are required.", variant: "destructive" });
+      payload = { title: textName.trim(), content: textContent.trim() };
+    } else if (activeModal === 'pdf') {
+      if (!fileInput) return toast({ title: "Error", description: "A PDF file is required.", variant: "destructive" });
+      payload = new FormData();
+      payload.append("file", fileInput);
+    }
+
+    createSource.mutate({ botId: params.botId, type: activeModal, payload }, {
+      onSuccess: () => {
+        toast({ title: "Source Added", description: "Data source has been queued for processing." });
+        resetModal();
+      },
+      onError: (err: any) => {
+        toast({ title: "Failed to add source", description: err.message, variant: "destructive" });
+      }
+    });
+  }
+
+  const getIconForType = (type: string) => {
+    switch (type) {
+      case 'pdf': return <FileText className="h-4 w-4 text-brand" />;
+      case 'url': return <Globe className="h-4 w-4 text-success" />;
+      case 'sitemap': return <Map className="h-4 w-4 text-warning" />;
+      case 'text': return <Type className="h-4 w-4 text-text-primary" />;
+      default: return <FileText className="h-4 w-4 text-text-tertiary" />;
+    }
+  }
+
+  const getBackgroundForType = (type: string) => {
+    switch (type) {
+      case 'pdf': return "bg-brand/10 border-brand/20";
+      case 'url': return "bg-success/10 border-success/20";
+      case 'sitemap': return "bg-warning/10 border-warning/20";
+      case 'text': return "bg-bg-elevated border-border-default";
+      default: return "bg-bg-tertiary border-border-default";
+    }
+  }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8 animate-in fade-in duration-500 pb-10">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Data Sources</h1>
-        <p className="text-slate-500">Train your bot on customized proprietary data.</p>
-      </div>
+    <div className="pb-10 animate-in fade-in duration-500">
+      <PageHeader 
+        title="Data Sources" 
+        description="Manage the knowledge base connected exclusively to this bot."
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" /> Add source <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48 bg-bg-elevated border-border-default">
+            <DropdownMenuItem className="cursor-pointer focus:bg-bg-tertiary focus:text-text-primary py-2" onSelect={() => setActiveModal('pdf')}>
+              <FileText className="mr-2 h-4 w-4 text-brand" /> PDF Document
+            </DropdownMenuItem>
+            <DropdownMenuItem className="cursor-pointer focus:bg-bg-tertiary focus:text-text-primary py-2" onSelect={() => setActiveModal('url')}>
+              <Globe className="mr-2 h-4 w-4 text-success" /> Web URL
+            </DropdownMenuItem>
+            <DropdownMenuItem className="cursor-pointer focus:bg-bg-tertiary focus:text-text-primary py-2" onSelect={() => setActiveModal('sitemap')}>
+              <Map className="mr-2 h-4 w-4 text-warning" /> Sitemap
+            </DropdownMenuItem>
+            <DropdownMenuItem className="cursor-pointer focus:bg-bg-tertiary focus:text-text-primary py-2" onSelect={() => setActiveModal('text')}>
+              <Type className="mr-2 h-4 w-4 text-text-primary" /> Raw Text
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </PageHeader>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Add Source</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="pdf" className="w-full">
-            <TabsList className="grid w-full grid-cols-4 mb-4">
-              <TabsTrigger value="pdf">PDF File</TabsTrigger>
-              <TabsTrigger value="url">Web URL</TabsTrigger>
-              <TabsTrigger value="sitemap">Sitemap</TabsTrigger>
-              <TabsTrigger value="text">Raw Text</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="pdf" className="space-y-4">
-              <div className="border-2 border-dashed border-slate-200 rounded-lg p-10 flex flex-col items-center justify-center">
-                <UploadCloud className="h-10 w-10 text-slate-400 mb-2" />
-                <p className="text-sm font-medium mb-1">Click to upload or drag and drop</p>
-                <p className="text-xs text-slate-500 mb-4">PDF up to 10MB</p>
-                <Input id="file-upload" type="file" accept=".pdf" onChange={e => setFile(e.target.files?.[0] || null)} className="max-w-xs" />
+      <div className="flex flex-col gap-4 mt-6">
+        {isLoading && (
+          <div className="flex flex-col gap-4">
+             {[1, 2, 3].map(i => (
+               <div key={i} className="h-24 bg-bg-secondary border border-border-default rounded-xl animate-pulse" />
+             ))}
+          </div>
+        )}
+        
+        {sources.length === 0 && !isLoading && (
+          <div className="p-20 text-center bg-bg-secondary rounded-xl border border-dashed border-border-default">
+            <div className="bg-bg-tertiary w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
+               <Database className="h-6 w-6 text-text-tertiary" />
+            </div>
+            <h3 className="text-text-primary font-medium mb-1">No data sources discovered</h3>
+            <p className="text-text-secondary text-sm max-w-xs mx-auto">Start by uploading a PDF or linking a URL to train your assistant.</p>
+            <Button variant="outline" className="mt-6 h-9" onClick={() => setActiveModal('url')}>Connect first source</Button>
+          </div>
+        )}
+
+        {sources.map((source: any) => (
+          <div 
+            key={source.id} 
+            className={`
+              flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-xl border bg-bg-secondary transition-all hover:shadow-sm
+              ${source.status === 'processing' ? 'border-brand/40 shadow-brand-glow/10 animate-pulse-brand' : 'border-border-default hover:border-border-hover'}
+              ${source.status === 'failed' ? 'border-danger/30 bg-danger/5' : ''}
+            `}
+          >
+            {/* Left Box: Identity */}
+            <div className="flex items-center gap-4 mb-4 sm:mb-0">
+              <div className={`h-11 w-11 flex items-center justify-center rounded-full border shadow-sm ${getBackgroundForType(source.type)}`}>
+                {getIconForType(source.type)}
               </div>
-              <Button onClick={() => uploadFile()} disabled={uploading || !file}>
-                {uploading ? "Uploading..." : "Train on File"}
-              </Button>
-            </TabsContent>
-            
-            <TabsContent value="url" className="space-y-4">
-              <Input placeholder="https://example.com/about" value={url} onChange={e => setUrl(e.target.value)} />
-              <Button onClick={() => addSource({ type: "url", name: url, url: url })} disabled={addingSource || !url}>Train on URL</Button>
-            </TabsContent>
-            
-            <TabsContent value="sitemap" className="space-y-4">
-              <Input placeholder="https://example.com/sitemap.xml" value={sitemap} onChange={e => setSitemap(e.target.value)} />
-              <Button onClick={() => addSource({ type: "sitemap", name: sitemap, url: sitemap })} disabled={addingSource || !sitemap}>Train on Sitemap</Button>
-            </TabsContent>
-            
-            <TabsContent value="text" className="space-y-4">
-              <Input placeholder="Document Title" value={textName} onChange={e => setTextName(e.target.value)} />
-              <Textarea placeholder="Paste your text content here..." rows={6} value={text} onChange={e => setText(e.target.value)} />
-              <Button onClick={() => addSource({ type: "text", name: textName || "Raw Text", content: text })} disabled={addingSource || !text}>Train on Text</Button>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-medium text-text-primary text-sm line-clamp-1 break-all max-w-[200px] md:max-w-[400px]">
+                    {source.name}
+                  </h4>
+                  <Badge variant="outline" className="text-[9px] py-0 h-4 uppercase font-bold tracking-tighter bg-bg-tertiary border-none">
+                    {source.type}
+                  </Badge>
+                </div>
+                {/* Error rendering inline if failed */}
+                {source.status === 'failed' && (
+                  <p className="text-[11px] text-danger mt-1 flex items-center gap-1 font-medium">
+                    <AlertCircle className="h-3 w-3" /> {source.error || "Training failed"}
+                  </p>
+                )}
+                <div className="flex items-center gap-3 mt-1.5 lg:hidden">
+                   <span className="text-[11px] text-text-tertiary font-medium uppercase tracking-widest">{source.chunk_count || source.chunks || 0} chunks</span>
+                </div>
+              </div>
+            </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Existing Sources ({sources?.length || 0})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <p>Loading...</p>
-          ) : (
-            <div className="rounded-md border border-slate-200">
-              {sources?.map((s: Source, i: number) => (
-                <div key={s.id} className={`flex items-center justify-between p-4 ${i !== sources.length - 1 ? 'border-b border-slate-200' : ''}`}>
-                  <div className="flex items-center gap-4">
-                    {s.type === 'pdf' ? <FileText className="h-5 w-5 text-indigo-500" /> : 
-                     s.type === 'text' ? <FileText className="h-5 w-5 text-slate-500" /> : 
-                     s.type === 'sitemap' ? <Globe className="h-5 w-5 text-emerald-500" /> : 
-                     <Globe className="h-5 w-5 text-blue-500" />}
-                    <div>
-                      <h4 className="font-medium text-sm">{s.name}</h4>
-                      <div className="flex items-center gap-2 mt-1">
-                        <StatusBadge status={s.status} />
-                        <span className="text-xs text-slate-500 uppercase">{s.type}</span>
-                        {s.status === 'ready' && <span className="text-xs text-slate-500">• {s.chunk_count} chunks</span>}
-                        {s.status === 'failed' && <span className="text-xs text-red-500">• {s.error_msg}</span>}
-                      </div>
-                    </div>
+            {/* Middle Box: Data Specs */}
+            <div className="hidden lg:flex flex-col mx-8 flex-1">
+              <span className="text-sm font-semibold text-text-primary">{source.chunk_count || source.chunks || 0} chunks</span>
+              <span className="text-[11px] text-text-tertiary uppercase tracking-widest font-bold">Stored Knowledge</span>
+            </div>
+
+            {/* Right Box: Status & Controls */}
+            <div className="flex items-center gap-4 justify-between sm:justify-end border-t border-border-default sm:border-t-0 pt-3 sm:pt-0">
+              
+              {source.status === 'processing' && <Badge variant="brand" className="animate-pulse h-6">Processing</Badge>}
+              {source.status === 'ready' && <Badge variant="success" className="h-6">Ready</Badge>}
+              {source.status === 'failed' && <Badge variant="danger" className="h-6">Failed</Badge>}
+
+              <div className="flex items-center gap-4 ml-2">
+                {(source.type === 'url' || source.type === 'sitemap') && (
+                  <div className="flex items-center gap-2 bg-bg-tertiary/50 px-2 py-1 rounded-lg">
+                    <span className="text-[10px] text-text-tertiary font-bold uppercase hidden md:inline">Auto-sync</span>
+                    <Switch 
+                       checked={source.auto_retrain ?? source.autoRetrain} 
+                       onCheckedChange={(checked) => handleToggleRetrain(source.id, checked)} 
+                       className="scale-75"
+                    />
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => { if(confirm("Are you sure?")) deleteSource(s.id) }}>
-                    <Trash2 className="h-4 w-4 text-red-500" />
+                )}
+                
+                <div className="flex items-center gap-1 ml-1">
+                  {(source.type === 'url' || source.type === 'sitemap') && (
+                    <Button variant="ghost" size="icon" className="h-9 w-9 text-text-tertiary hover:text-brand hover:bg-brand/5" onClick={() => handleRetrain(source.id)}>
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="icon" className="h-9 w-9 text-text-tertiary hover:bg-danger/10 hover:text-danger" onClick={() => handleDelete(source.id)}>
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
-              ))}
-              {sources?.length === 0 && (
-                <div className="p-8 text-center text-slate-500 text-sm">No sources added yet.</div>
-              )}
+              </div>
+
             </div>
-          )}
-        </CardContent>
-      </Card>
-      
+          </div>
+        ))}
+      </div>
+
+      {/* MODALS */}
+      <Dialog open={!!activeModal} onOpenChange={(open) => !open && resetModal()}>
+        <DialogContent className="bg-bg-secondary border-border-default text-text-primary sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {activeModal === 'pdf' && "Upload PDF Document"}
+              {activeModal === 'url' && "Scrape Single URL"}
+              {activeModal === 'sitemap' && "Import Entire Sitemap"}
+              {activeModal === 'text' && "Add Raw Text"}
+            </DialogTitle>
+            <DialogDescription className="text-text-secondary">
+              {activeModal === 'pdf' && "Upload a PDF containing FAQs, manuals, or company policies."}
+              {activeModal === 'url' && "The bot will scrape the visible text content of this webpage."}
+              {activeModal === 'sitemap' && "The bot will traverse the sitemap and ingest all listed webpages."}
+              {activeModal === 'text' && "Manually paste unstructured text for the bot to learn."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {(activeModal === 'url' || activeModal === 'sitemap') && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-widest text-text-tertiary">Web Address</label>
+                <Input 
+                  placeholder={activeModal === 'sitemap' ? "https://example.com/sitemap.xml" : "https://example.com/about"}
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  className="bg-bg-primary border-border-default focus:border-brand"
+                />
+              </div>
+            )}
+
+            {activeModal === 'text' && (
+              <>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-text-tertiary">Title / Reference Name</label>
+                  <Input 
+                    placeholder="e.g. Return Policy Fallback"
+                    value={textName}
+                    onChange={(e) => setTextName(e.target.value)}
+                    className="bg-bg-primary border-border-default focus:border-brand"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-text-tertiary">Text Content</label>
+                  <Textarea 
+                    placeholder="Paste the raw text here..."
+                    className="min-h-[160px] bg-bg-primary border-border-default focus:border-brand"
+                    value={textContent}
+                    onChange={(e) => setTextContent(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+
+            {activeModal === 'pdf' && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-widest text-text-tertiary">Select File</label>
+                <Input 
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(e) => setFileInput(e.target.files?.[0] || null)}
+                  className="bg-bg-primary border-border-default file:text-text-primary file:bg-bg-elevated file:border-0 file:mr-4 file:px-4 file:py-1 file:rounded-md cursor-pointer"
+                />
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="border-t border-border-default pt-4">
+            <Button variant="ghost" onClick={resetModal} className="text-text-secondary hover:text-text-primary">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCreate} 
+              disabled={createSource.isPending}
+            >
+              {createSource.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+              Import Source
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
-// Importing useStore implicitly for the File Upload boundary
-import { useStore } from '@/lib/store'
+// Ensure the page doesn't crash if lucide icon is missing
+function Database(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5V19A9 3 0 0 0 21 19V5" />
+      <path d="M3 12A9 3 0 0 0 21 12" />
+    </svg>
+  )
+}

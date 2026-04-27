@@ -6,6 +6,8 @@ import redis.asyncio as redis
 from ingestion.extractors import extract_pdf, extract_url, extract_sitemap, extract_text
 from ingestion.chunker import chunk_text
 from ingestion.embedder import embed_chunks
+from utils.limits import get_strict_plan
+from services.cache import invalidate_bot_cache
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +102,21 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
 
         if not all_chunks:
             raise ValueError("No content could be extracted or chunked from the source.")
+            
+        # 5.5. Limit Enforcement Check
+        bot_res = await db.table("bots").select("owner_id").eq("id", bot_id).single().execute()
+        if bot_res.data:
+            owner_id = bot_res.data["owner_id"]
+            strict_data = await get_strict_plan(owner_id, db)
+            plan = strict_data["plan"]
+            
+            if plan.get("max_chunks_per_bot") is not None:
+                # Fetch all existing chunks globally mapped to this specific bot
+                current_chunks_res = await db.table("data_sources").select("chunk_count").eq("bot_id", bot_id).execute()
+                current_total = sum((c.get("chunk_count") or 0) for c in (current_chunks_res.data or []))
+                
+                if current_total + len(all_chunks) > plan["max_chunks_per_bot"]:
+                     raise ValueError(f"Vector Database Limits Exceeded: Cannot map {len(all_chunks)} chunks to vector store. Upgrade plan to increase bot capacity.")
 
         # 6. Embed all chunks (batched efficiently in embedder.py)
         texts_to_embed = [c.content for c in all_chunks]
@@ -138,6 +155,9 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
             "updated_at": now_str
         }).eq("id", source_id).execute()
 
+        # INVALIDATE semantic cache safely to map data overrides
+        await invalidate_bot_cache(bot_id, redis_client)
+
     except Exception as e:
         logger.error(f"Ingestion pipeline failed for source {source_id}: {str(e)}", exc_info=True)
         try:
@@ -145,6 +165,6 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
                 "status": "failed",
                 "error_msg": str(e)
             }).eq("id", source_id).execute()
-        except:
-            pass # Eat fallback error so we can bubble the original exception
+        except Exception as db_e:
+            logger.error(f"Failed to write fallback error status to DB: {str(db_e)}")
         raise e

@@ -1,13 +1,6 @@
 import { create } from 'zustand'
 import { User } from '@supabase/supabase-js'
-
-export interface Bot {
-  id: string;
-  name: string;
-  slug: string;
-  data_sources?: unknown[];
-  [key: string]: unknown;
-}
+import { Bot } from './types'
 
 interface AppState {
   user: User | null

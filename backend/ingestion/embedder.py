@@ -37,12 +37,12 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
         batch_embeddings = []
         for attempt in range(max_retries):
             try:
-                # Assuming google.generativeai allows synchronous batching
-                # The prompt states use google-generativeai.
-                response = genai.embed_content(
+                import asyncio
+                response = await asyncio.to_thread(
+                    genai.embed_content,
                     model=model,
                     content=batch,
-                    task_type="retrieval_document", # optional but best practice for RAG
+                    task_type="retrieval_document",
                     output_dimensionality=768
                 )
                 

@@ -1,8 +1,11 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from database import get_db
 from middleware.auth import get_current_user
 from config import settings
 import razorpay
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -36,6 +39,14 @@ async def create_subscription(
         
     plan = plan_res.data
     rz_plan_id = plan.get("razorpay_plan_id")
+    
+    # Map securely against statically defined environments if not in DB natively.
+    if not rz_plan_id:
+        fallback_maps = {
+            "Pro": getattr(settings, "RAZORPAY_PRO_PLAN_ID", None),
+            "Enterprise": getattr(settings, "RAZORPAY_ENT_PLAN_ID", None)
+        }
+        rz_plan_id = fallback_maps.get(plan_name)
     
     if not rz_plan_id:
         raise HTTPException(status_code=400, detail="Plan does not have a mapped Razorpay Plan ID")
@@ -86,29 +97,36 @@ async def razorpay_webhook(request: Request, db=Depends(get_db)):
     if event == "payment.captured":
         try:
             # Map robustly verifying profile existence recursively via subscription
-            sub_id = payload["payload"]["payment"]["entity"].get("subscription_id")
+            entity = payload["payload"]["payment"]["entity"]
+            sub_id = entity.get("subscription_id")
             if not sub_id:
                return Response(status_code=200)
                
-            # Assuming Razorpay Subscription entity tracks an active ID mappings natively or user context is tracked 
-            # In a real system, you map the `notes` payload where user_id is injected during creation, 
-            # OR map by email/contact attached to Razorpay customer natively.
-            customer_email = payload["payload"]["payment"]["entity"].get("email")
+            customer_email = entity.get("email")
             
             if customer_email:
                 user_res = await db.table("profiles").select("id").eq("email", customer_email).execute()
                 if user_res.data:
-                    # In a production context we'd reliably know the exactly matching plan_id mapped.
-                    # We will assume a simple standard "Pro" upgrade logic generically.
-                    pro_plan = await db.table("plans").select("id").eq("name", "Pro").single().execute()
-                    if pro_plan.data:
-                         await db.table("profiles").update({
-                             "plan_id": pro_plan.data["id"],
-                             "razorpay_subscription_id": sub_id
-                         }).eq("id", user_res.data[0]["id"]).execute()
+                    # Fetch the Razorpay Subscription to determine the actual plan purchased
+                    sub_details = rzp_client.subscription.fetch(sub_id)
+                    actual_rz_plan_id = sub_details.get("plan_id")
+                    
+                    if actual_rz_plan_id:
+                        # Find the matching plan in our DB by razorpay_plan_id
+                        purchased_plan = await db.table("plans").select("id").eq("razorpay_plan_id", actual_rz_plan_id).execute()
+                        
+                        # Fallback to Pro if DB mapping is missing for safety, though it shouldn't be in prod
+                        plan_db_id = purchased_plan.data[0]["id"] if purchased_plan.data else None
+                        
+                        if plan_db_id:
+                             await db.table("profiles").update({
+                                 "plan_id": plan_db_id,
+                                 "razorpay_subscription_id": sub_id
+                             }).eq("id", user_res.data[0]["id"]).execute()
+                             logger.info(f"Successfully upgraded user {customer_email} to plan {plan_db_id}")
                          
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to process payment.captured webhook: {e}")
 
     elif event == "subscription.cancelled":
         try:
@@ -119,7 +137,8 @@ async def razorpay_webhook(request: Request, db=Depends(get_db)):
                     "plan_id": free_plan.data["id"],
                     "razorpay_subscription_id": None
                 }).eq("razorpay_subscription_id", sub_id).execute()
-        except Exception:
-            pass
+                logger.info(f"Successfully downgraded subscription {sub_id} to Free plan")
+        except Exception as e:
+            logger.error(f"Failed to process subscription.cancelled webhook: {e}")
             
     return Response(status_code=200)
