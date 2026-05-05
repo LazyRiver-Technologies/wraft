@@ -53,6 +53,19 @@ export function AppSidebar({ mobileOpen, setMobileOpen }: { mobileOpen?: boolean
     staleTime: 5 * 60 * 1000,
   })
 
+  const { data: whatsappStatus } = useQuery({
+    queryKey: ['whatsapp_status', currentBot?.id],
+    queryFn: async () => {
+      if (!currentBot) return { is_connected: false }
+      const res = await fetch(`/api/v1/bots/${currentBot.id}/whatsapp-status`)
+      if (!res.ok) return { is_connected: false }
+      return await res.json()
+    },
+    enabled: !!currentBot?.id,
+    refetchInterval: 10 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+  })
+
   const NavItem = ({ href, icon: Icon, children, badge, active }: { href: string, icon: React.ElementType, children: React.ReactNode, badge?: number, active?: boolean }) => {
     const isActive = active !== undefined ? active : pathname === href || (href !== "/dashboard" && pathname.startsWith(href + "/"))
     
@@ -64,12 +77,14 @@ export function AppSidebar({ mobileOpen, setMobileOpen }: { mobileOpen?: boolean
             ? "text-text-primary bg-brand-muted border-l-2 border-brand font-medium" 
             : "text-text-secondary hover:text-text-primary hover:bg-bg-tertiary"
         )}>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 w-full">
             <Icon className="h-4 w-4" />
-            {children}
+            <div className="flex items-center justify-between w-full">
+              {children}
+            </div>
           </div>
           {badge !== undefined && badge > 0 && (
-            <span className="bg-brand text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center font-bold">
+            <span className="bg-brand text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center font-bold ml-2">
               {badge}
             </span>
           )}
@@ -120,9 +135,9 @@ export function AppSidebar({ mobileOpen, setMobileOpen }: { mobileOpen?: boolean
             <NavItem href={`/dashboard/bots/${currentBot.id}/appearance`} icon={Palette}>Appearance</NavItem>
             <NavItem href={`/dashboard/bots/${currentBot.id}/actions`} icon={Zap}>Actions</NavItem>
             <NavItem href={`/dashboard/bots/${currentBot.id}/whatsapp`} icon={Phone}>
-              WhatsApp
-              {Array.isArray(currentBot.whatsapp_configs) && currentBot.whatsapp_configs.length > 0 && (
-                <span className="ml-auto w-1.5 h-1.5 bg-success rounded-full"></span>
+              <span>WhatsApp</span>
+              {whatsappStatus?.is_connected && (
+                <span className="ml-auto w-2 h-2 bg-success rounded-full"></span>
               )}
             </NavItem>
             <NavItem href={`/dashboard/bots/${currentBot.id}/settings`} icon={Settings}>Settings</NavItem>

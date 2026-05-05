@@ -26,6 +26,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { useProfileWithPlan } from "@/hooks/api/useBilling"
 import { FeatureGate } from "@/components/ui/FeatureGate"
+import { useUsage } from "@/hooks/api/useUsage"
 
 export default function BotAnalyticsPage(props: { params: any }) {
   const params = React.use(props.params as Promise<{ botId: string }>)
@@ -42,6 +43,8 @@ export default function BotAnalyticsPage(props: { params: any }) {
   const sentimentData = sentimentResp?.data || []
   const citationLeaderboard = sourcesResp?.data || []
   const { data: profile } = useProfileWithPlan()
+  const { data: usage } = useUsage()
+  
   const hasAdvancedAnalytics = profile?.plans?.advanced_analytics === true
 
   return (
@@ -59,6 +62,7 @@ export default function BotAnalyticsPage(props: { params: any }) {
       </PageHeader>
 
       <div className="flex flex-col gap-6">
+        <FeatureGate hasAccess={hasAdvancedAnalytics} requiredPlan="Starter">
         
         {/* ROW 1: STATS */}
         <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
@@ -167,6 +171,7 @@ export default function BotAnalyticsPage(props: { params: any }) {
              ))}
            </div>
         </div>
+        </FeatureGate>
 
       </div>
     </>

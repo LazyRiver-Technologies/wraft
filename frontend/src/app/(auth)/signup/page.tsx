@@ -14,6 +14,17 @@ export default function SignupPage() {
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState("")
   const router = useRouter()
+  const [planParam, setPlanParam] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const plan = params.get("plan")
+    if (plan) setPlanParam(plan)
+    
+    if (plan && plan !== "trial") {
+      localStorage.setItem("intended_plan", plan)
+    }
+  }, [])
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -53,11 +64,17 @@ export default function SignupPage() {
     })
   }
 
+  // Set default plan selection UI feedback if needed
+  const planNameDisplay = planParam && planParam !== "trial" 
+    ? <div className="text-brand text-sm font-medium mt-1">Signing up for the <span className="capitalize">{planParam}</span> plan</div>
+    : <p className="mt-1 text-sm text-text-secondary">Start building AI assistants in seconds.</p>;
+
+
   return (
     <div className="flex flex-col gap-6">
       <div className="text-center">
         <h2 className="text-xl font-semibold text-text-primary">Create an account</h2>
-        <p className="mt-1 text-sm text-text-secondary">Start building AI assistants in seconds.</p>
+        {planNameDisplay}
       </div>
 
       <form onSubmit={handleSignup} className="grid gap-4">

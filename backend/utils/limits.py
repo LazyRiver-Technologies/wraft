@@ -1,13 +1,30 @@
 from supabase import AClient
 from fastapi import HTTPException
+from datetime import date
 
 async def get_strict_plan(user_id: str, db: AClient) -> dict:
     """
     Secure interceptor that mathematically guarantees a plan wrapper.
     If the user's plan is null, it forcefully binds them to the 'free' constraints natively.
     """
-    plan_res = await db.table("profiles").select("plan_id, monthly_message_count, plans(*)").eq("id", user_id).single().execute()
+    plan_res = await db.table("profiles").select("plan_id, monthly_message_count, billing_cycle_start, plans(*)").eq("id", user_id).single().execute()
     profile = plan_res.data if plan_res else {}
+    today = date.today()
+
+    cycle_start_raw = profile.get("billing_cycle_start") if profile else None
+    if cycle_start_raw:
+        try:
+            cycle_start = date.fromisoformat(cycle_start_raw)
+            if cycle_start.year != today.year or cycle_start.month != today.month:
+                await db.table("profiles").update({
+                    "monthly_message_count": 0,
+                    "billing_cycle_start": today.isoformat(),
+                    "overage_messages": 0
+                }).eq("id", user_id).execute()
+                profile["monthly_message_count"] = 0
+                profile["billing_cycle_start"] = today.isoformat()
+        except Exception:
+            pass
     
     plan = profile.get("plans") if profile else None
     

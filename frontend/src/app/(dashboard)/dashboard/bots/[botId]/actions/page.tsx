@@ -66,7 +66,8 @@ export default function ActionsPage(props: { params: any }) {
   const { mutate: deleteAction } = useDeleteAction()
   
   const { data: profile } = useProfileWithPlan()
-  const hasActionsAccess = profile?.plans?.api_access === true
+  const hasActionsAccess = profile?.plans?.custom_actions === true || profile?.plans?.check_availability === true
+  const hasScaleAccess = profile?.plans?.calculate_quote === true
 
   const createMutation = {
     isPending: isCreating,
@@ -250,7 +251,7 @@ export default function ActionsPage(props: { params: any }) {
 
   return (
     <div className="space-y-8 max-w-6xl animate-in fade-in duration-500 pb-10">
-      <FeatureGate hasAccess={hasActionsAccess} requiredPlan="Scale">
+      <FeatureGate hasAccess={hasActionsAccess} requiredPlan="Growth">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-white mb-2 flex items-center gap-2">
@@ -278,17 +279,21 @@ export default function ActionsPage(props: { params: any }) {
             <div className="grid md:grid-cols-3 gap-4 max-w-4xl px-4">
                {ACTION_TYPES.map(type => {
                  const Icon = type.icon
+                 const isScaleOnly = type.id === 'calculate_quote'
+                 const disabled = isScaleOnly && !hasScaleAccess
+                 
                  return (
-                   <Card key={type.id} className="bg-black/20 border-white/5 hover:border-emerald-500/30 transition-all cursor-pointer group flex flex-col" onClick={() => { resetForm(); setSelectedType(type.id); setIsModalOpen(true); setTimeout(() => setStep(2), 100); }}>
+                   <Card key={type.id} className={`bg-black/20 border-white/5 transition-all flex flex-col ${disabled ? 'opacity-50 grayscale' : 'hover:border-emerald-500/30 cursor-pointer group'} relative`} onClick={() => { if(!disabled) { resetForm(); setSelectedType(type.id); setIsModalOpen(true); setTimeout(() => setStep(2), 100); } }}>
+                     {disabled && <div className="absolute top-2 right-2 bg-rose-500/10 text-rose-500 text-[10px] px-2 py-0.5 rounded border border-rose-500/20 font-bold uppercase tracking-wider">Scale Plan</div>}
                      <CardHeader className="text-center pb-2 flex-grow">
-                         <div className={`mx-auto w-12 h-12 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform ${type.bg} border ${type.border}`}>
+                         <div className={`mx-auto w-12 h-12 rounded-xl flex items-center justify-center mb-3 ${!disabled ? 'group-hover:scale-110' : ''} transition-transform ${type.bg} border ${type.border}`}>
                             <Icon className={`h-6 w-6 ${type.color}`} />
                          </div>
                          <CardTitle className="text-base text-emerald-50">{type.title}</CardTitle>
                          <CardDescription className="text-xs max-w-[200px] mx-auto mt-2 leading-relaxed">{type.description}</CardDescription>
                      </CardHeader>
                      <CardFooter className="pt-2 pb-4">
-                       <Button variant="ghost" className="w-full text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 h-8 text-xs">Set up <ArrowRight className="h-3 w-3 ml-1" /></Button>
+                       <Button variant="ghost" disabled={disabled} className="w-full text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 h-8 text-xs">{disabled ? "Upgrade to unlock" : "Set up"} <ArrowRight className="h-3 w-3 ml-1" /></Button>
                      </CardFooter>
                    </Card>
                  )
@@ -375,12 +380,16 @@ export default function ActionsPage(props: { params: any }) {
               <div className="grid md:grid-cols-3 gap-4">
                  {ACTION_TYPES.map(type => {
                    const Icon = type.icon
+                   const isScaleOnly = type.id === 'calculate_quote'
+                   const disabled = isScaleOnly && !hasScaleAccess
+
                    return (
                      <Card 
                         key={type.id} 
-                        className={`bg-black/40 border-white/5 hover:border-emerald-500/50 transition-all cursor-pointer group flex flex-col ${selectedType === type.id ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`} 
-                        onClick={() => setSelectedType(type.id)}
+                        className={`bg-black/40 border-white/5 transition-all flex flex-col relative ${disabled ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:border-emerald-500/50 group'} ${selectedType === type.id ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`} 
+                        onClick={() => { if(!disabled) setSelectedType(type.id) }}
                      >
+                       {disabled && <div className="absolute top-2 right-2 bg-rose-500/10 text-rose-500 text-[10px] px-2 py-0.5 rounded border border-rose-500/20 font-bold uppercase tracking-wider">Scale Plan</div>}
                        <CardHeader className="text-center pb-4 flex-grow">
                            <div className={`mx-auto w-12 h-12 rounded-xl flex items-center justify-center mb-3 ${type.bg} border ${type.border}`}>
                               <Icon className={`h-6 w-6 ${type.color}`} />

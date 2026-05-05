@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useState, useEffect, useRef } from "react"
-import { Send, Mic, Copy, ExternalLink, Pencil, Database, MessageSquare, Lightbulb, Clock, RefreshCw, Activity, Zap } from "lucide-react"
+import { Send, Mic, Copy, ExternalLink, Pencil, Database, MessageSquare, Lightbulb, Clock, RefreshCw, Activity, Zap, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 
 import { useStore } from "@/lib/store"
@@ -17,6 +17,8 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useProfileWithPlan } from "@/hooks/api/useBilling"
+import { FeatureGate } from "@/components/ui/FeatureGate"
 
 export default function BotPlaygroundPage(props: { params: any }) {
   const params = React.use(props.params as Promise<{ botId: string }>)
@@ -32,6 +34,7 @@ export default function BotPlaygroundPage(props: { params: any }) {
   const { data: suggestionsData, isLoading: suggestionsLoading } = useSuggestionsQuery(params.botId)
   const { data: qaData, isLoading: qaLoading } = useQA(params.botId)
   const shareMutation = useSharePlayground()
+  const { data: profile } = useProfileWithPlan()
 
   const [inputValue, setInputValue] = useState("")
   
@@ -136,6 +139,16 @@ export default function BotPlaygroundPage(props: { params: any }) {
           <RefreshCw className="mr-2 h-4 w-4" /> Refresh Bot
         </Button>
       </PageHeader>
+
+      {botData?.is_active === false && (
+        <div className="bg-warning/10 border border-warning/20 text-warning px-4 py-3 rounded-xl mb-6 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+          <AlertTriangle className="h-5 w-5" />
+          <div className="flex flex-col">
+            <span className="font-semibold text-sm">Bot is paused</span>
+            <span className="text-xs opacity-90">This assistant is currently offline and won't respond to incoming messages.</span>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-220px)] min-h-[600px]">
         
@@ -300,6 +313,7 @@ export default function BotPlaygroundPage(props: { params: any }) {
               Generate a secure public link to share this exact configuration with team members or clients. Links expire automatically.
             </p>
             
+            <FeatureGate hasAccess={profile?.plans?.shareable_playground === true} requiredPlan="Starter">
             <div className="flex flex-col gap-3">
               {shareLink ? (
                 <div className="flex items-center gap-2">
@@ -326,6 +340,7 @@ export default function BotPlaygroundPage(props: { params: any }) {
               )}
               <p className="text-[10px] text-text-tertiary text-center italic">Public access will be restricted to the playground interface only.</p>
             </div>
+            </FeatureGate>
           </div>
 
           {/* Quick Shortcuts */}

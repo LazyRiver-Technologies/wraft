@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, constr, Field
 import secrets
+import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from database import get_db
 from middleware.auth import get_current_user
 from services.limits import check_bot_limit, check_actions_limit, check_feature_access
+from services.cache_service import invalidate_bot_settings
 import re
 
 router = APIRouter()
@@ -14,6 +16,11 @@ router = APIRouter()
 class BotCreate(BaseModel):
     name: str
     slug: str
+
+class BotUpdate(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    is_active: Optional[bool] = None
 
 class BotSettingsUpdate(BaseModel):
     system_prompt: Optional[str] = None
@@ -28,15 +35,21 @@ class BotAppearanceUpdate(BaseModel):
     theme_color: Optional[str] = None
     bot_name: Optional[str] = None
     bot_avatar: Optional[str] = None
+    bot_avatar_url: Optional[str] = None
     welcome_message: Optional[str] = None
+    placeholder_text: Optional[str] = None
+    launcher_icon: Optional[str] = None
+    position: Optional[str] = None
 
 class NotificationSettingsUpdate(BaseModel):
     owner_whatsapp: Optional[str] = None
-    notify_on_lead: Optional[bool] = None
-    notify_on_fallback: Optional[bool] = None
-    notify_on_escalation: Optional[bool] = None
+    notify_new_lead: Optional[bool] = None
+    notify_fallback: Optional[bool] = None
+    notify_negative_sentiment: Optional[bool] = None
+    notify_escalation: Optional[bool] = None
     quiet_hours_start: Optional[int] = None
     quiet_hours_end: Optional[int] = None
+    min_interval_minutes: Optional[int] = None
 
 class BotActionCreate(BaseModel):
     name: str
@@ -52,10 +65,18 @@ class BotActionUpdate(BaseModel):
     config: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
 
+class WhatsAppConfigUpdate(BaseModel):
+    phone_number_id: str
+    waba_id: Optional[str] = None
+    access_token: str = Field(..., min_length=20)
+
+class ApiKeyCreate(BaseModel):
+    label: str = Field(default="default", max_length=80)
+
 
 # --- Helper ---
 async def verify_bot_ownership(bot_id: str, user, db) -> dict:
-    bot_res = await db.table("bots").select("*").eq("id", bot_id).eq("owner_id", user.id).single().execute()
+    bot_res = await db.table("bots").select("*").eq("id", bot_id).eq("owner_id", user.id).is_("deleted_at", "null").single().execute()
     if not bot_res.data:
         raise HTTPException(status_code=404, detail="Bot not found or not owned by user")
     return bot_res.data
@@ -63,8 +84,11 @@ async def verify_bot_ownership(bot_id: str, user, db) -> dict:
 
 # --- Endpoints ---
 
+from services.admin_events import publish_admin_event
+from redis_client import get_redis
+
 @router.post("")
-async def create_bot(bot_req: BotCreate, user=Depends(get_current_user), db=Depends(get_db)):
+async def create_bot(bot_req: BotCreate, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
     if not re.match(r"^[a-z0-9-]+$", bot_req.slug):
         raise HTTPException(status_code=400, detail="Slug must be URL-safe (lowercase letters, numbers, hyphens)")
         
@@ -78,14 +102,20 @@ async def create_bot(bot_req: BotCreate, user=Depends(get_current_user), db=Depe
             "slug": bot_req.slug
         }).execute()
     except Exception as e:
-        # Deterministic validation matching against Postgres SQL State 23505 (Unique Violation)
         if getattr(e, 'code', None) == '23505' or "duplicate key" in str(e).lower():
             raise HTTPException(status_code=400, detail="A bot with this URL slug already exists. Please choose another.")
         raise HTTPException(status_code=500, detail=f"Database error creating bot: {str(e)}")
         
     new_bot = insert_res.data[0]
     
-    # Retrieve full bot with relations. Note: assumes triggers work immediately.
+    # Publish Admin Event
+    await publish_admin_event("new_bot", {
+        "bot_name": bot_req.name,
+        "owner_name": user.full_name if hasattr(user, 'full_name') else "User",
+        "bot_id": new_bot["id"]
+    }, redis)
+    
+    # Retrieve full bot with relations
     full_bot_res = await db.table("bots").select("*, bot_settings(*), bot_appearance(*)").eq("id", new_bot["id"]).single().execute()
     
     return full_bot_res.data
@@ -95,7 +125,7 @@ async def list_bots(user=Depends(get_current_user), db=Depends(get_db)):
     # Returns bots, with chunk_count and message_count. Using separate queries or a view.
     # We will do subqueries using PostgREST standard relation queries if possible.
     # Otherwise, fetch bots and aggregate in python.
-    bots_res = await db.table("bots").select("*").eq("owner_id", user.id).execute()
+    bots_res = await db.table("bots").select("*").eq("owner_id", user.id).is_("deleted_at", "null").execute()
     bots = bots_res.data
     
     if not bots:
@@ -146,7 +176,7 @@ async def get_bot(bot_id: str, user=Depends(get_current_user), db=Depends(get_db
     
     bot_res = await db.table("bots").select(
         "*, bot_settings(*), bot_appearance(*), whatsapp_configs(*), data_sources(*)"
-    ).eq("id", bot_id).single().execute()
+    ).eq("id", bot_id).is_("deleted_at", "null").single().execute()
     
     bot = bot_res.data
     
@@ -158,13 +188,103 @@ async def get_bot(bot_id: str, user=Depends(get_current_user), db=Depends(get_db
             
     return bot
 
+@router.patch("/{bot_id}")
+async def update_bot(bot_id: str, body: BotUpdate, user=Depends(get_current_user), db=Depends(get_db)):
+    await verify_bot_ownership(bot_id, user, db)
+    update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "slug" in update_data and not re.match(r"^[a-z0-9-]+$", update_data["slug"]):
+        raise HTTPException(status_code=400, detail="Slug must be URL-safe (lowercase letters, numbers, hyphens)")
+    if not update_data:
+        return {"status": "ok"}
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    try:
+        res = await db.table("bots").update(update_data).eq("id", bot_id).eq("owner_id", user.id).is_("deleted_at", "null").execute()
+    except Exception as e:
+        if "duplicate key" in str(e).lower():
+            raise HTTPException(status_code=400, detail="A bot with this URL slug already exists. Please choose another.")
+        raise
+    return res.data[0] if res.data else {"status": "updated"}
+
+@router.get("/{bot_id}/whatsapp-status")
+async def get_whatsapp_status(bot_id: str, user=Depends(get_current_user), db=Depends(get_db)):
+    await verify_bot_ownership(bot_id, user, db)
+    res = await db.table("whatsapp_configs").select("is_connected").eq("bot_id", bot_id).single().execute()
+    if not res.data:
+        return {"is_connected": False}
+    return {"is_connected": res.data.get("is_connected", False)}
+
+@router.put("/{bot_id}/whatsapp")
+async def save_whatsapp_config(bot_id: str, body: WhatsAppConfigUpdate, user=Depends(get_current_user), db=Depends(get_db)):
+    await verify_bot_ownership(bot_id, user, db)
+    await check_feature_access(user.id, "wa_notifications", db)
+    verify_token = f"wraft_{secrets.token_urlsafe(24)}"
+    now = datetime.now(timezone.utc).isoformat()
+    res = await db.table("whatsapp_configs").upsert({
+        "bot_id": bot_id,
+        "phone_number_id": body.phone_number_id,
+        "waba_id": body.waba_id,
+        "access_token_enc": body.access_token,
+        "verify_token": verify_token,
+        "is_connected": True,
+        "connected_at": now,
+        "updated_at": now
+    }).execute()
+    cfg = res.data[0] if res.data else {}
+    if cfg.get("access_token_enc"):
+        cfg["access_token_enc"] = "****"
+    return cfg
+
+@router.delete("/{bot_id}/whatsapp", status_code=204)
+async def disconnect_whatsapp(bot_id: str, user=Depends(get_current_user), db=Depends(get_db)):
+    await verify_bot_ownership(bot_id, user, db)
+    await db.table("whatsapp_configs").update({
+        "access_token_enc": None,
+        "is_connected": False,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }).eq("bot_id", bot_id).execute()
+    return None
+
+@router.get("/{bot_id}/api-keys")
+async def list_api_keys(bot_id: str, user=Depends(get_current_user), db=Depends(get_db)):
+    await verify_bot_ownership(bot_id, user, db)
+    await check_feature_access(user.id, "api_access", db)
+    res = await db.table("api_keys").select("id, label, is_active, last_used_at, created_at").eq("bot_id", bot_id).order("created_at", desc=True).execute()
+    return res.data or []
+
+@router.post("/{bot_id}/api-keys")
+async def create_api_key(bot_id: str, body: ApiKeyCreate, user=Depends(get_current_user), db=Depends(get_db)):
+    await verify_bot_ownership(bot_id, user, db)
+    await check_feature_access(user.id, "api_access", db)
+    raw_key = f"wraft_live_{secrets.token_urlsafe(32)}"
+    key_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+    res = await db.table("api_keys").insert({
+        "bot_id": bot_id,
+        "key_hash": key_hash,
+        "label": body.label,
+        "is_active": True
+    }).execute()
+    row = res.data[0] if res.data else {}
+    return {
+        "id": row.get("id"),
+        "label": body.label,
+        "key": raw_key,
+        "created_at": row.get("created_at")
+    }
+
+@router.delete("/{bot_id}/api-keys/{key_id}", status_code=204)
+async def revoke_api_key(bot_id: str, key_id: str, user=Depends(get_current_user), db=Depends(get_db)):
+    await verify_bot_ownership(bot_id, user, db)
+    await check_feature_access(user.id, "api_access", db)
+    await db.table("api_keys").update({"is_active": False}).eq("id", key_id).eq("bot_id", bot_id).execute()
+    return None
+
 ALLOWED_MODELS = [
     'gemini-2.5-flash-lite',   # primary — recommended
     'llama-3.1-8b-instant',    # groq direct — not recommended for Indian languages
 ]
 
 @router.patch("/{bot_id}/settings")
-async def update_bot_settings(bot_id: str, settings: BotSettingsUpdate, user=Depends(get_current_user), db=Depends(get_db)):
+async def update_bot_settings(bot_id: str, settings: BotSettingsUpdate, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
     await verify_bot_ownership(bot_id, user, db)
     
     update_data = {k: v for k, v in settings.model_dump().items() if v is not None}
@@ -177,8 +297,11 @@ async def update_bot_settings(bot_id: str, settings: BotSettingsUpdate, user=Dep
         
     await db.table("bot_settings").upsert({
         "bot_id": bot_id,
-        **update_data
+        **update_data,
+        "updated_at": datetime.now(timezone.utc).isoformat()
     }).execute()
+    
+    await invalidate_bot_settings(bot_id, redis)
     return {"status": "updated"}
 
 @router.patch("/{bot_id}/appearance")
@@ -186,10 +309,15 @@ async def update_bot_appearance(bot_id: str, appearance: BotAppearanceUpdate, us
     await verify_bot_ownership(bot_id, user, db)
     
     update_data = {k: v for k, v in appearance.model_dump().items() if v is not None}
+    if "bot_avatar" in update_data:
+        update_data["bot_avatar_url"] = update_data.pop("bot_avatar")
+    update_data.pop("bot_name", None)
     
     if "theme_color" in update_data:
         if not re.match(r"^#(?:[0-9a-fA-F]{3}){1,2}$", update_data["theme_color"]):
             raise HTTPException(status_code=400, detail="theme_color must be a valid hex code")
+    if "position" in update_data and update_data["position"] not in ["bottom-left", "bottom-right"]:
+        raise HTTPException(status_code=400, detail="position must be bottom-left or bottom-right")
             
     if not update_data:
          return {"status": "ok"}
@@ -219,7 +347,11 @@ async def update_bot_notifications(bot_id: str, notifs: NotificationSettingsUpda
 @router.delete("/{bot_id}", status_code=204)
 async def delete_bot(bot_id: str, user=Depends(get_current_user), db=Depends(get_db)):
     await verify_bot_ownership(bot_id, user, db)
-    await db.table("bots").delete().eq("id", bot_id).execute()
+    await db.table("bots").update({
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+        "is_active": False,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }).eq("id", bot_id).execute()
     return None
 
 @router.post("/{bot_id}/playground/share")
@@ -262,6 +394,24 @@ async def get_shared_bot(token: str, db=Depends(get_db)):
 # --- Bot Actions ---
 ALLOWED_ACTION_TYPES = ["notify_owner", "calculate_quote", "check_availability"]
 
+def validate_action_config(action_type: str, config: dict):
+    if action_type in ("calculate_quote", "check_availability"):
+        items = config.get("items")
+        if not isinstance(items, list) or not items:
+            raise HTTPException(status_code=400, detail="Action config must include a non-empty items array")
+        for item in items:
+            if not isinstance(item, dict) or not item.get("name"):
+                raise HTTPException(status_code=400, detail="Each action item must include a name")
+            if action_type == "calculate_quote":
+                if item.get("rate") is None or not item.get("unit"):
+                    raise HTTPException(status_code=400, detail="Quote items must include rate and unit")
+                try:
+                    float(item.get("rate"))
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="Quote item rate must be numeric")
+            if action_type == "check_availability" and not isinstance(item.get("available"), bool):
+                raise HTTPException(status_code=400, detail="Availability items must include a boolean available field")
+
 @router.post("/{bot_id}/actions")
 async def create_bot_action(bot_id: str, action: BotActionCreate, user=Depends(get_current_user), db=Depends(get_db)):
     await verify_bot_ownership(bot_id, user, db)
@@ -270,10 +420,14 @@ async def create_bot_action(bot_id: str, action: BotActionCreate, user=Depends(g
     if action.action_type not in ALLOWED_ACTION_TYPES:
         raise HTTPException(status_code=400, detail="Invalid action_type")
         
-    if action.action_type == "check_availability":
+    if action.action_type == "notify_owner":
+        await check_feature_access(user.id, "wa_notifications", db)
+    elif action.action_type == "check_availability":
         await check_feature_access(user.id, "check_availability", db)
     elif action.action_type == "calculate_quote":
         await check_feature_access(user.id, "calculate_quote", db)
+
+    validate_action_config(action.action_type, action.config)
         
     try:
         res = await db.table("bot_actions").insert({
@@ -302,7 +456,17 @@ async def update_bot_action(bot_id: str, action_id: str, update: BotActionUpdate
     if not update_data:
         return {"status": "ok"}
         
-    res = await db.table("bot_actions").update(update_data).eq("id", action_id).eq("bot_id", bot_id).execute()
+    current_res = await db.table("bot_actions").select("action_type, config").eq("id", action_id).eq("bot_id", bot_id).single().execute()
+    if not current_res.data:
+         raise HTTPException(status_code=404, detail="Action not found")
+    next_type = current_res.data["action_type"]
+    next_config = update_data.get("config", current_res.data.get("config") or {})
+    validate_action_config(next_type, next_config)
+
+    res = await db.table("bot_actions").update({
+        **update_data,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }).eq("id", action_id).eq("bot_id", bot_id).execute()
     if not res.data:
          raise HTTPException(status_code=404, detail="Action not found")
     return res.data[0]

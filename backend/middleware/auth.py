@@ -19,6 +19,11 @@ async def get_current_user(authorization: str = Header(None), db=Depends(get_db)
     if not user_resp or not user_resp.user:
         raise HTTPException(status_code=401, detail="Invalid token")
         
+    # Check if the user is banned
+    profile_resp = await db.table("profiles").select("is_banned").eq("id", user_resp.user.id).single().execute()
+    if profile_resp.data and profile_resp.data.get("is_banned"):
+        raise HTTPException(status_code=403, detail="Account suspended")
+        
     return user_resp.user
 
 async def get_admin_user(authorization: str = Header(None), db=Depends(get_db)):

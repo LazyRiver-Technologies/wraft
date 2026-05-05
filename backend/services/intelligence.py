@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 async def init_topic_embeddings():
     pass
 
-async def compute_suggestions(bot_id: str, db) -> None:
+from services.cache_service import get_bot_settings_cached
+
+async def compute_suggestions(bot_id: str, db, redis) -> None:
     """
     Runs weekly. Parses the previous 7 days of DB conversation arrays without LLM queries.
     Utilizes Native DB + Array tracking algorithms to replace Supabase nested PostgreSQL limits.
@@ -18,12 +20,10 @@ async def compute_suggestions(bot_id: str, db) -> None:
         now_dt = datetime.now(timezone.utc)
         week_start = now_dt - timedelta(days=7)
         
-        # 1. Pull bot fallback sequence limits
-        bot_res = await db.table("bot_settings").select("fallback_message").eq("bot_id", bot_id).single().execute()
-        if not bot_res.data:
+        # 1. Pull bot fallback sequence limits (Cached)
+        settings_dict = await get_bot_settings_cached(bot_id, db, redis)
+        if not settings_dict:
             return
-            
-        settings_dict = bot_res.data or {}
         fallback_msg = settings_dict.get("fallback_message", "I couldn't find an answer in my knowledge base.")
         if not fallback_msg:
             return

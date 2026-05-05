@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Backgro
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
 import urllib.parse
+from datetime import datetime, timezone
 from database import get_db
 from middleware.auth import get_current_user
 from redis_client import get_redis
@@ -127,6 +128,7 @@ async def create_pdf_source(bot_id: str, background_tasks: BackgroundTasks, file
             "type": "pdf",
             "name": file.filename,
             "storage_path": storage_path,
+            "file_size_bytes": len(file_bytes),
             "status": "pending"
         }).execute()
         
@@ -145,7 +147,7 @@ async def create_pdf_source(bot_id: str, background_tasks: BackgroundTasks, file
 async def list_sources(bot_id: str, user=Depends(get_current_user), db=Depends(get_db)):
     await verify_bot_ownership(bot_id, user, db)
     
-    res = await db.table("data_sources").select("*").eq("bot_id", bot_id).execute()
+    res = await db.table("data_sources").select("*").eq("bot_id", bot_id).is_("deleted_at", "null").execute()
     return res.data
 
 @router.delete("/{bot_id}/sources/{source_id}", status_code=204)
@@ -158,8 +160,12 @@ async def delete_source(bot_id: str, source_id: str, user=Depends(get_current_us
     redis_conn = await get_redis()
     await invalidate_bot_cache(bot_id, redis_conn)
     
-    # Deleting the source handles cascade to chunks via DB schema constraints
-    await db.table("data_sources").delete().eq("bot_id", bot_id).eq("id", source_id).execute()
+    await db.table("document_chunks").delete().eq("source_id", source_id).execute()
+    await db.table("data_sources").update({
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+        "status": "failed",
+        "error_msg": "deleted_by_user"
+    }).eq("bot_id", bot_id).eq("id", source_id).execute()
     return None
 
 @router.get("/{bot_id}/sources/{source_id}/status")
@@ -203,7 +209,11 @@ async def retrain_source(bot_id: str, source_id: str, background_tasks: Backgrou
         raise HTTPException(status_code=400, detail="Source is currently processing")
 
     try:
-        await db.table("data_sources").update({"status": "pending"}).eq("id", source_id).execute()
+        await db.table("data_sources").update({
+            "status": "pending",
+            "error_msg": None,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", source_id).execute()
         background_tasks.add_task(run_ingestion_pipeline, source_id, db, redis)
         return {"message": "Retraining started"}
     except Exception as e:

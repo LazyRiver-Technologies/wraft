@@ -21,8 +21,11 @@ import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
+import { useProfileWithPlan } from "@/hooks/api/useBilling"
+
 export default function DashboardOverviewPage() {
   const user = useStore((state) => state.user)
+  const { data: profile, isLoading: profileLoading } = useProfileWithPlan()
   const setCurrentBot = useStore((state) => state.setCurrentBot)
   const { data: botsData, isLoading: botsLoading } = useBots()
   const { data: overview, isLoading: overviewLoading } = useGlobalOverviewQuery()
@@ -37,7 +40,7 @@ export default function DashboardOverviewPage() {
     setCurrentBot(null)
   }, [setCurrentBot])
 
-  const isLoading = botsLoading || overviewLoading || trendsLoading || leadsLoading
+  const isLoading = botsLoading || overviewLoading || trendsLoading || leadsLoading || profileLoading
 
   // Loading state
   if (isLoading) {
@@ -71,7 +74,7 @@ export default function DashboardOverviewPage() {
               </defs>
             </svg>
           )}
-          title={`Welcome to Wraft, ${user?.email?.split('@')[0] || 'Builder'}`}
+          title={`Welcome back, ${profile?.full_name || user?.email?.split('@')[0] || 'Builder'}`}
           description="Create your first AI assistant in minutes."
           action={
             <Link href="/dashboard/bots">
@@ -91,8 +94,12 @@ export default function DashboardOverviewPage() {
   return (
     <>
       <PageHeader 
-        title="Overview" 
-        description="Monitor your AI assistant performance across all channels."
+        title={`Welcome back, ${profile?.full_name || user?.email?.split('@')[0] || 'Builder'}`} 
+        description={
+          profile?.business_name 
+            ? profile.business_name
+            : "Monitor your AI assistant performance across all channels."
+        }
       />
 
       <div className="flex flex-col gap-6">

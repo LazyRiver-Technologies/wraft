@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str
     GROQ_API_KEY: str
     REDIS_URL: str
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: Optional[str] = None
     META_VERIFY_TOKEN: str
     META_APP_SECRET: str
     PLATFORM_WA_PHONE_NUMBER_ID: Optional[str] = None
@@ -25,7 +28,7 @@ class Settings(BaseSettings):
     ]
 
     ADMIN_SECRET_KEY: str = "default_dev_key_change_me_in_prod_12345"
-    ADMIN_PASSWORD_HASH: str = "$2b$12$R6aWj9h5wXl8YnZ2zN2eR.xV1p3y5b9G1X1K3O5q8L0B7J1M7P3tS" # hash of 'admin'
+    ADMIN_PASSWORD_HASH: str = "$2b$12$ERW6MVoeaI4qs0nmD4IexOFEpKkq1chqcQYxQhBmsgZ0H1kbVnk6W" # hash of 'admin'
     ADMIN_ALLOWED_IPS: list[str] = []
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

@@ -1,5 +1,6 @@
 import time
 import asyncio
+from services.admin_events import publish_admin_event
 import google.generativeai as genai
 import google.api_core.exceptions
 from config import settings
@@ -102,25 +103,15 @@ async def is_off_topic(
         logger.warning(f"Off-topic check failed: {e}")
         return False  # fail open — better to answer than block
 
-async def expand_acronyms(
-    question: str,
-    bot_id: str,
-    db
-) -> str:
+from services.cache_service import get_bot_settings_cached
+
+async def expand_acronyms(question: str, bot_id: str, db, redis) -> str:
     """
     Expands acronyms before embedding.
-    Uses client-defined acronym map from bot_settings.
-    e.g. FSD → Full Stack Developer
-         CTC → Cost to Company
-         WFH → Work From Home
+    Uses client-defined acronym map from bot_settings (Cached).
     """
-    settings_res = await db.table("bot_settings")\
-        .select("acronym_map")\
-        .eq("bot_id", bot_id)\
-        .single()\
-        .execute()
-    
-    acronym_map = settings_res.data.get("acronym_map", {}) if settings_res.data else {}
+    settings = await get_bot_settings_cached(bot_id, db, redis)
+    acronym_map = settings.get("acronym_map", {})
     if not acronym_map:
         return question
     
@@ -381,7 +372,7 @@ async def get_rag_response(
         }
 
     # Step 0.5 — Acronym expansion
-    question = await expand_acronyms(question, bot_id, db)
+    question = await expand_acronyms(question, bot_id, db, redis)
     
     # Step 0.6 — Query rewrite for ambiguous questions
     question = await rewrite_query(
@@ -421,6 +412,11 @@ async def get_rag_response(
             question_embedding, bot_id, db
         )
         if off_topic:
+            await publish_admin_event("guardrail_trigger", {
+                "bot_id": bot_id,
+                "type": "offtopic",
+                "question_preview": question[:50]
+            }, redis)
             return {
                 "response": f"I can only answer questions "
                            f"about {business_name}. "
@@ -538,8 +534,16 @@ USER QUESTION:
 {question}"""
 
     # Fetch active bot_actions from DB
-    bot_actions_res = await db.table("bot_actions").select("*").eq("bot_id", bot_id).eq("is_active", True).execute()
-    db_actions = bot_actions_res.data or []
+    from services.limits import check_feature_flag
+    
+    # Check Feature Flag
+    can_use_actions = await check_feature_flag("ai_actions", owner_id, "paid", db, redis)
+    
+    if can_use_actions:
+        bot_actions_res = await db.table("bot_actions").select("*").eq("bot_id", bot_id).eq("is_active", True).execute()
+        db_actions = bot_actions_res.data or []
+    else:
+        db_actions = []
     
     # Map raw tools down into Gemini constraints safely isolated
     tools = get_action_tools(db_actions) if db_actions else []
@@ -653,8 +657,12 @@ USER QUESTION:
         tb = traceback.format_exc()
         logger.error(f"LLM API failure: {e}\n{tb}")
         return {
-            "response": f"I'm currently experiencing technical difficulties processing your request. Error: {e}\n{tb}",
+            "response": bot_settings.get(
+                "fallback_message",
+                "I'm currently experiencing technical difficulties. Please try again shortly."
+            ),
             "cache_hit": False,
+            "source": "llm_error",
             "sources": [],
             "tokens_used": 0,
             "latency_ms": int((time.time() - start_time) * 1000),

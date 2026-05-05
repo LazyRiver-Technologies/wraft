@@ -11,6 +11,8 @@ import { createClient } from "@/utils/supabase/client"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
+import { useProfileWithPlan, useUpdateProfile } from "@/hooks/api/useBilling"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("profile")
@@ -20,6 +22,40 @@ export default function SettingsPage() {
   const router = useRouter()
   const supabase = createClient()
   const { toast } = useToast()
+
+  const { data: profile, isLoading: profileLoading } = useProfileWithPlan()
+  const { mutate: updateProfile, isPending: isUpdatingProfile } = useUpdateProfile()
+
+  const [formData, setFormData] = useState({
+    full_name: "",
+    phone: "",
+    business_name: "",
+    city: "",
+    primary_language: "english",
+  })
+
+  React.useEffect(() => {
+    if (profile) {
+      setFormData({
+        full_name: profile.full_name || "",
+        phone: profile.phone || "",
+        business_name: profile.business_name || "",
+        city: profile.city || "",
+        primary_language: profile.primary_language || "english",
+      })
+    }
+  }, [profile])
+
+  const handleSaveProfile = () => {
+    updateProfile(formData, {
+      onSuccess: () => {
+        toast({ title: "Profile saved", description: "Your account details have been updated." })
+      },
+      onError: (err: any) => {
+        toast({ title: "Error", description: err.message, variant: "destructive" })
+      }
+    })
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -94,7 +130,67 @@ export default function SettingsPage() {
                 <h3 className="text-lg font-semibold text-text-primary mb-6">Account Details</h3>
                 
                 <div className="grid gap-6">
+                  
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <label className="text-sm font-medium text-text-primary">Full Name</label>
+                      <Input 
+                        value={formData.full_name} 
+                        onChange={e => setFormData(p => ({...p, full_name: e.target.value}))} 
+                        placeholder="John Doe" 
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <label className="text-sm font-medium text-text-primary">Phone Number</label>
+                      <Input 
+                        value={formData.phone} 
+                        onChange={e => setFormData(p => ({...p, phone: e.target.value}))} 
+                        placeholder="+91 98765 43210" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <label className="text-sm font-medium text-text-primary">Business Name</label>
+                      <Input 
+                        value={formData.business_name} 
+                        onChange={e => setFormData(p => ({...p, business_name: e.target.value}))} 
+                        placeholder="Acme Corp" 
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <label className="text-sm font-medium text-text-primary">City</label>
+                      <Input 
+                        value={formData.city} 
+                        onChange={e => setFormData(p => ({...p, city: e.target.value}))} 
+                        placeholder="Bengaluru" 
+                      />
+                    </div>
+                  </div>
+
                   <div className="grid gap-2">
+                    <label className="text-sm font-medium text-text-primary">Primary Language</label>
+                    <Select value={formData.primary_language} onValueChange={v => setFormData(p => ({...p, primary_language: v}))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select language" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="english">English</SelectItem>
+                        <SelectItem value="hindi">Hindi</SelectItem>
+                        <SelectItem value="kannada">Kannada</SelectItem>
+                        <SelectItem value="hinglish">Hinglish</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <Button onClick={handleSaveProfile} disabled={isUpdatingProfile}>
+                      {isUpdatingProfile ? "Saving..." : "Save Changes"}
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-2 pt-4 border-t border-border-default">
                     <label className="text-sm font-medium text-text-primary">Email Address</label>
                     <Input value={user?.email || ""} readOnly className="bg-bg-tertiary text-text-secondary cursor-not-allowed" />
                     <p className="text-xs text-text-tertiary mt-1">Email address cannot be changed currently.</p>

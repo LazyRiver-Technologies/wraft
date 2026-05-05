@@ -114,7 +114,24 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
         if not bot_res.data:
             return
             
+        from services.limits import check_feature_flag
+        
         bot = bot_res.data
+        owner_id = bot["owner_id"]
+        
+        # 1.1 Check Feature Flag
+        # To avoid extra DB calls, we could pass plan from the profile but here we need it
+        profile_res = await db.table("profiles").select("plans!inner(name, wa_notifications)").eq("id", owner_id).single().execute()
+        plan = profile_res.data.get("plans", {}) if profile_res.data else {}
+        plan_name = plan.get("name", "trial")
+        if not plan.get("wa_notifications", False):
+            logger.info(f"WhatsApp agent disabled by plan for user {owner_id}")
+            return
+        
+        if not await check_feature_flag("whatsapp_agent", owner_id, plan_name, db, redis_client):
+            logger.info(f"WhatsApp agent disabled by flag for user {owner_id}")
+            return
+
         if not bot.get("is_active", True):
              return
              
@@ -148,7 +165,7 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
         conversation_id = conversation["id"]
 
         # Local History
-        history_res = await db.table("messages").select("user_message, assistant_message").eq("conversation_id", conversation_id).order("created_at", desc=True).limit(6).execute()
+        history_res = await db.table("messages").select("role, content").eq("conversation_id", conversation_id).order("created_at", desc=True).limit(6).execute()
         raw_history = history_res.data or []
         history = raw_history[::-1]
 
@@ -203,13 +220,22 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
             "last_active_at": now_str
         }).eq("id", conversation_id).execute()
 
+        try:
+            await db.rpc("increment_profile_message_count", {
+                "p_owner_id": owner_id,
+                "p_increment": 1
+            }).execute()
+        except Exception:
+            pass
+
         source = rag_result.get("source", "")
         if source and source.startswith("guardrail_"):
             events = [{
                 "bot_id": bot_id, 
-                "event_type": "guardrail_triggered", 
+                "event_type": "message_received", 
                 "session_id": session_id,
                 "properties": {
+                    "channel": "whatsapp",
                     "guardrail_type": source,
                     "question_preview": message[:50]
                 }

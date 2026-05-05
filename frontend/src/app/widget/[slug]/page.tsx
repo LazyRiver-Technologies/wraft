@@ -34,6 +34,11 @@ export default function WidgetApp() {
         if (res.ok) {
            const data = await res.json()
            setAppearance(data)
+           
+           if (data.theme_color) {
+             document.documentElement.style.setProperty('--bot-color', data.theme_color)
+           }
+           
            setMessages([{
              id: 'welcome_1',
              role: 'assistant',
@@ -114,12 +119,18 @@ export default function WidgetApp() {
   return (
     <div className="flex flex-col h-screen bg-slate-50 relative overflow-hidden font-sans">
       {/* Header */}
-      <header className="flex items-center gap-3 px-4 py-3 shrink-0 text-white shadow-sm" style={{ backgroundColor: appearance.theme_color }}>
-        <div className="bg-white/20 p-1.5 rounded-full">
-           <Bot className="h-5 w-5" />
+      <header className="flex items-center gap-3 px-4 py-3 shrink-0 text-white shadow-sm" style={{ backgroundColor: 'var(--bot-color, #10b981)' }}>
+        <div className="bg-white/20 p-1.5 rounded-full flex items-center justify-center overflow-hidden h-8 w-8">
+           {appearance.bot_avatar_url ? (
+             <img src={appearance.bot_avatar_url} alt="Avatar" className="h-full w-full object-cover" />
+           ) : (
+             <span className="font-bold text-sm">
+               {appearance.bot_name ? appearance.bot_name.charAt(0).toUpperCase() : <Bot className="h-5 w-5" />}
+             </span>
+           )}
         </div>
         <div>
-          <h2 className="text-sm font-semibold leading-tight">Support Agent</h2>
+          <h2 className="text-sm font-semibold leading-tight">{appearance.bot_name || "Support Agent"}</h2>
           <p className="text-[11px] opacity-80 leading-tight">Usually replies instantly</p>
         </div>
       </header>
@@ -137,7 +148,7 @@ export default function WidgetApp() {
               )}
               <div 
                 className={`px-4 py-2.5 rounded-2xl text-[14.5px] leading-[1.4] ${msg.role === 'user' ? 'text-white rounded-br-sm shadow-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm text-left'}`}
-                style={msg.role === 'user' ? { backgroundColor: appearance.theme_color || '#10b981' } : {}}
+                style={msg.role === 'user' ? { backgroundColor: 'var(--bot-color, #10b981)' } : {}}
               >
                 {msg.content}
               </div>
@@ -180,7 +191,7 @@ export default function WidgetApp() {
             type="submit" 
             disabled={!inputVal.trim() || typing}
             className="absolute right-1.5 p-1.5 rounded-full text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-            style={{ backgroundColor: appearance.theme_color }}
+            style={{ backgroundColor: 'var(--bot-color, #10b981)' }}
           >
              <Send className="h-4 w-4 ml-[1px] mt-[1px]" />
           </button>

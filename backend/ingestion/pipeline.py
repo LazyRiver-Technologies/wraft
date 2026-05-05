@@ -23,7 +23,11 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
             raise ValueError(f"Source with ID {source_id} not found.")
 
         # 2. Update status to processing
-        await db.table("data_sources").update({"status": "processing"}).eq("id", source_id).execute()
+        await db.table("data_sources").update({
+            "status": "processing",
+            "error_msg": None,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", source_id).execute()
 
         bot_id = source.get("bot_id")
         source_type = source.get("type")
@@ -80,7 +84,8 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
             await db.table("data_sources").update({
                 "status": "failed",
                 "error_msg": "duplicate_pending_confirmation",
-                "checksum": main_checksum
+                "checksum": main_checksum,
+                "updated_at": datetime.now(timezone.utc).isoformat()
             }).eq("id", source_id).execute()
             return
 
@@ -152,6 +157,7 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
             "status": "ready",
             "chunk_count": len(all_chunks),
             "checksum": main_checksum,
+            "error_msg": None,
             "updated_at": now_str
         }).eq("id", source_id).execute()
 

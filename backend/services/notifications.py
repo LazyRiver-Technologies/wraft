@@ -49,15 +49,15 @@ async def send_owner_notification(
             if quiet_start <= current_hour < quiet_end:
                 return False
 
-        # 4. Strict caching rate-limit execution to avoid spam constraints
+        # 4. Strict caching rate-limit execution to avoid spam constraints.
+        # Redis is an optimization, not a hard dependency for chat delivery.
         limit_val = ns.get("min_interval_minutes", 5)
         key = f"notif_limit:{bot_id}"
         
-        # We rely on redis check
-        if await redis.exists(key):
-            return False
-            
-        await redis.setex(key, limit_val * 60, 1)
+        if redis is not None:
+            if await redis.exists(key):
+                return False
+            await redis.setex(key, limit_val * 60, 1)
 
         # 5. Type enablement check
         if notification_type == "new_lead" and not ns.get("notify_new_lead", True):

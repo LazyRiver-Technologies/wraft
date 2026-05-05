@@ -1,19 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { createClient } from "@/utils/supabase/client"
+import { fetchApi } from "@/lib/api"
 
 export function useActions(botId?: string) {
   return useQuery({
     queryKey: ["actions", botId],
-    queryFn: async () => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('bot_actions')
-        .select('*')
-        .eq('bot_id', botId!)
-        .order('created_at', { ascending: true })
-      if (error) throw error
-      return data
-    },
+    queryFn: () => fetchApi(`/api/v1/bots/${botId}/actions`),
     enabled: !!botId,
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
@@ -24,16 +15,11 @@ export function useActions(botId?: string) {
 export function useCreateAction() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ botId, data }: { botId: string, data: any }) => {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from('bot_actions')
-        .insert({ ...data, bot_id: botId })
-        .select()
-        .single()
-      if (error) throw error
-      return result
-    },
+    mutationFn: ({ botId, data }: { botId: string, data: any }) =>
+      fetchApi(`/api/v1/bots/${botId}/actions`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     onSuccess: (_, { botId }) => {
       queryClient.invalidateQueries({ queryKey: ["actions", botId] })
     },
@@ -43,18 +29,11 @@ export function useCreateAction() {
 export function useUpdateAction() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ botId, actionId, data }: { botId: string, actionId: string, data: any }) => {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from('bot_actions')
-        .update(data)
-        .eq('id', actionId)
-        .eq('bot_id', botId)
-        .select()
-        .single()
-      if (error) throw error
-      return result
-    },
+    mutationFn: ({ botId, actionId, data }: { botId: string, actionId: string, data: any }) =>
+      fetchApi(`/api/v1/bots/${botId}/actions/${actionId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
     onSuccess: (_, { botId }) => {
       queryClient.invalidateQueries({ queryKey: ["actions", botId] })
     },
@@ -64,16 +43,8 @@ export function useUpdateAction() {
 export function useDeleteAction() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ botId, actionId }: { botId: string, actionId: string }) => {
-      const supabase = createClient()
-      const { error } = await supabase
-        .from('bot_actions')
-        .delete()
-        .eq('id', actionId)
-        .eq('bot_id', botId)
-      if (error) throw error
-      return true
-    },
+    mutationFn: ({ botId, actionId }: { botId: string, actionId: string }) =>
+      fetchApi(`/api/v1/bots/${botId}/actions/${actionId}`, { method: "DELETE" }),
     onSuccess: (_, { botId }) => {
       queryClient.invalidateQueries({ queryKey: ["actions", botId] })
     },

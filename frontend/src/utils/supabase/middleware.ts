@@ -43,8 +43,7 @@ export async function updateSession(request: NextRequest) {
   //    myNewResponse.cookies.setAll(supabaseResponse.cookies.getAll())
   // 3. Change the myNewResponse object to fit your needs, but avoid changing
   //    the cookies!
-  // 4. Finally:
   //    return myNewResponse
 
-  return { supabaseResponse, user }
+  return { supabaseResponse, user, supabase }
 }

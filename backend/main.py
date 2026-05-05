@@ -9,7 +9,7 @@ from redis_client import init_redis, get_redis, close_redis
 from services.intelligence import init_topic_embeddings
 from crons import run_daily_jobs, run_weekly_jobs, recover_crashed_jobs
 
-from routers import auth, bots, sources, chat, webhook, analytics, billing, qa, leads, usage, admin
+from routers import auth, bots, sources, chat, webhook, analytics, billing, qa, leads, usage, admin, onboarding, profiles
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -61,6 +61,8 @@ app.include_router(webhook.router, prefix="/api/v1/webhook")
 app.include_router(analytics.router, prefix="/api/v1/analytics")
 app.include_router(billing.router, prefix="/api/v1/billing")
 app.include_router(usage.router, prefix="/api/v1")
+app.include_router(onboarding.router, prefix="/api/v1/onboarding")
+app.include_router(profiles.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 
 @app.get("/health")

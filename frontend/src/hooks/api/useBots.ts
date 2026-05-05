@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { fetchApi } from "@/lib/api"
 import { useStore } from "@/lib/store"
-import { Bot, BotSettings, BotAppearance } from "@/lib/types"
+import { Bot, BotSettings, BotAppearance, NotificationSettings } from "@/lib/types"
 import { createClient } from "@/utils/supabase/client"
 
 export function useBots() {
@@ -12,14 +12,32 @@ export function useBots() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error("No session")
       
+      const currentYearMonth = parseInt(
+        new Date().toISOString().slice(0, 7).replace('-', '')
+      )
+      
       const { data, error } = await supabase
         .from('bots')
-        .select('*, bot_settings(*), bot_appearance(*), whatsapp_configs(*)')
+        .select(`
+          *,
+          bot_settings(*),
+          bot_appearance(*),
+          whatsapp_configs(*),
+          notification_settings(*),
+          conversations(count),
+          leads(count)
+        `)
         .eq('owner_id', session.user.id)
+        .is('deleted_at', null)
         .order('created_at', { ascending: false })
         
       if (error) throw error
-      return data as Bot[]
+      
+      // Usage logs are owner-scoped in the current schema, not bot-scoped.
+      return (data as any[]).map(bot => ({
+        ...bot,
+        this_month: { message_count: 0, web_count: 0, whatsapp_count: 0, year_month: currentYearMonth }
+      }))
     },
     staleTime: 15 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
@@ -34,8 +52,9 @@ export function useBot(botId?: string) {
       const supabase = createClient()
       const { data, error } = await supabase
         .from('bots')
-        .select('*, bot_settings(*), bot_appearance(*), whatsapp_configs(*)')
+        .select('*, bot_settings(*), bot_appearance(*), whatsapp_configs(*), notification_settings(*)')
         .eq('id', botId!)
+        .is('deleted_at', null)
         .single()
         
       if (error) throw error
@@ -68,12 +87,8 @@ export function useDeleteBot() {
   const currentBot = useStore(state => state.currentBot)
   
   return useMutation({
-    mutationFn: async (botId: string) => {
-      const supabase = createClient()
-      const { error } = await supabase.from('bots').delete().eq('id', botId)
-      if (error) throw error
-      return { success: true }
-    },
+    mutationFn: (botId: string) => 
+      fetchApi(`/api/v1/bots/${botId}`, { method: "DELETE" }),
     onSuccess: (_, botId) => {
       queryClient.invalidateQueries({ queryKey: ["bots"] })
       if (currentBot?.id === botId) {
@@ -86,18 +101,11 @@ export function useDeleteBot() {
 export function useUpdateBot() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ botId, data }: { botId: string, data: Partial<Bot> }) => {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from('bots')
-        .update(data)
-        .eq('id', botId)
-        .select()
-        .single()
-        
-      if (error) throw error
-      return result
-    },
+    mutationFn: ({ botId, data }: { botId: string, data: Partial<Bot> }) => 
+      fetchApi(`/api/v1/bots/${botId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
     onSuccess: (_, { botId }) => {
       queryClient.invalidateQueries({ queryKey: ["bot", botId] })
       queryClient.invalidateQueries({ queryKey: ["bots"] })
@@ -108,18 +116,11 @@ export function useUpdateBot() {
 export function useUpdateBotSettings() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ botId, data }: { botId: string, data: Partial<BotSettings> }) => {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from('bot_settings')
-        .update(data)
-        .eq('bot_id', botId)
-        .select()
-        .single()
-        
-      if (error) throw error
-      return result
-    },
+    mutationFn: ({ botId, data }: { botId: string, data: Partial<BotSettings> }) =>
+      fetchApi(`/api/v1/bots/${botId}/settings`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
     onSuccess: (_, { botId }) => {
       queryClient.invalidateQueries({ queryKey: ["bot", botId] })
       queryClient.invalidateQueries({ queryKey: ["bots"] })
@@ -130,18 +131,11 @@ export function useUpdateBotSettings() {
 export function useUpdateBotAppearance() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ botId, data }: { botId: string, data: Partial<BotAppearance> }) => {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from('bot_appearance')
-        .update(data)
-        .eq('bot_id', botId)
-        .select()
-        .single()
-        
-      if (error) throw error
-      return result
-    },
+    mutationFn: ({ botId, data }: { botId: string, data: Partial<BotAppearance> }) =>
+      fetchApi(`/api/v1/bots/${botId}/appearance`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
     onSuccess: (_, { botId }) => {
       queryClient.invalidateQueries({ queryKey: ["bot", botId] })
     },
@@ -151,18 +145,11 @@ export function useUpdateBotAppearance() {
 export function useUpdateBotNotifications() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ botId, data }: { botId: string, data: Partial<BotSettings> }) => {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from('bot_settings')
-        .update(data)
-        .eq('bot_id', botId)
-        .select()
-        .single()
-        
-      if (error) throw error
-      return result
-    },
+    mutationFn: ({ botId, data }: { botId: string, data: Partial<NotificationSettings> }) =>
+      fetchApi(`/api/v1/bots/${botId}/notifications`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
     onSuccess: (_, { botId }) => {
       queryClient.invalidateQueries({ queryKey: ["bot", botId] })
     },

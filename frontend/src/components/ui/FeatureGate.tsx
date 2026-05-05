@@ -14,19 +14,30 @@ export function FeatureGate({ hasAccess, requiredPlan, children }: FeatureGatePr
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl group">
-      <div className="filter blur-[4px] pointer-events-none opacity-80 transition-opacity group-hover:opacity-60 select-none">
+    <div className="relative w-full rounded-xl overflow-hidden group">
+      {/* Blurred background content - rendered in normal document flow so it retains dimensions */}
+      <div className="filter blur-[5px] pointer-events-none select-none opacity-60 transition-all duration-300 group-hover:blur-[6px]">
         {children}
       </div>
-      <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-auto">
-        <Link 
-          href="/pricing"
-          className="bg-bg-elevated border border-border-default shadow-sm hover:shadow-md transition-shadow rounded-full px-5 py-2.5 text-sm font-medium flex items-center gap-2 hover:bg-bg-tertiary"
-        >
-          <Lock className="h-4 w-4 text-text-secondary" />
-          <span className="text-text-primary">Requires {requiredPlan} plan</span>
-          <span className="text-brand font-bold ml-1">Upgrade</span>
-        </Link>
+      
+      {/* Chatbase-style Overlay Card */}
+      <div className="absolute inset-0 z-10 flex items-center justify-center bg-bg-primary/40">
+        <div className="bg-bg-primary border border-border-default shadow-xl rounded-xl p-6 sm:p-8 max-w-sm w-full mx-4 flex flex-col items-center text-center">
+          <div className="h-12 w-12 rounded-full bg-brand/10 flex items-center justify-center mb-4">
+            <Lock className="h-6 w-6 text-brand" />
+          </div>
+          <h3 className="text-xl font-bold text-text-primary mb-2">
+            Available on {requiredPlan}
+          </h3>
+          <p className="text-sm text-text-secondary mb-6 leading-relaxed">
+            Upgrade your plan to unlock this feature and get the most out of your AI assistant.
+          </p>
+          <Link href="/dashboard/billing" className="w-full">
+            <button className="w-full bg-text-primary hover:bg-text-secondary text-bg-primary font-medium py-2.5 px-4 rounded-lg transition-colors">
+              Upgrade to {requiredPlan}
+            </button>
+          </Link>
+        </div>
       </div>
     </div>
   )

@@ -34,6 +34,14 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
       const err = await response.json()
       message = err.detail || message
     } catch {}
+    
+    // Global 402 handling for plan/trial expiration
+    if (response.status === 402 && typeof window !== 'undefined') {
+      // Optional: Store a message in localStorage to show a toast on the billing page
+      localStorage.setItem("billing_error", message)
+      window.location.href = '/dashboard/billing'
+    }
+    
     throw new ApiError(message, response.status)
   }
 

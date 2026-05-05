@@ -48,7 +48,7 @@ export default function DashboardLayout({
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl w-full mb-12">
               {/* STARTER */}
-              <div className="border border-border-default rounded-xl p-6 bg-white shadow-sm flex flex-col">
+              <div className="border border-border-default rounded-xl p-6 bg-bg-secondary shadow-sm flex flex-col">
                 <h3 className="text-xl font-bold text-text-primary mb-2">Starter</h3>
                 <p className="text-sm text-text-secondary mb-4">Get your bot live</p>
                 <div className="mb-6"><span className="text-3xl font-bold">₹999</span><span className="text-text-secondary">/mo</span></div>
@@ -59,13 +59,13 @@ export default function DashboardLayout({
                   <li className="flex items-start gap-2 text-sm"><CheckCircle2 className="h-4 w-4 text-brand shrink-0 mt-0.5" /> 1 bot</li>
                   <li className="flex items-start gap-2 text-sm"><CheckCircle2 className="h-4 w-4 text-brand shrink-0 mt-0.5" /> 10 data sources</li>
                 </ul>
-                <Link href="/pricing" className="block w-full">
+                <Link href="/dashboard/billing" className="block w-full">
                   <Button className="w-full">Choose Starter</Button>
                 </Link>
               </div>
 
               {/* GROWTH */}
-              <div className="border-2 border-brand rounded-xl p-6 bg-white shadow-md flex flex-col relative overflow-hidden">
+              <div className="border-2 border-brand rounded-xl p-6 bg-bg-secondary shadow-md flex flex-col relative overflow-hidden">
                 <div className="absolute top-0 right-0 bg-brand text-white text-[10px] font-bold px-3 py-1 uppercase tracking-wider rounded-bl-lg">Most Popular</div>
                 <h3 className="text-xl font-bold text-text-primary mb-2">Growth</h3>
                 <p className="text-sm text-text-secondary mb-4">Capture leads automatically</p>
@@ -77,13 +77,13 @@ export default function DashboardLayout({
                   <li className="flex items-start gap-2 text-sm"><CheckCircle2 className="h-4 w-4 text-brand shrink-0 mt-0.5" /> 5,000 messages / mo</li>
                   <li className="flex items-start gap-2 text-sm"><CheckCircle2 className="h-4 w-4 text-brand shrink-0 mt-0.5" /> 5 bots</li>
                 </ul>
-                <Link href="/pricing" className="block w-full">
+                <Link href="/dashboard/billing" className="block w-full">
                   <Button className="w-full">Choose Growth</Button>
                 </Link>
               </div>
 
               {/* SCALE */}
-              <div className="border border-border-default rounded-xl p-6 bg-white shadow-sm flex flex-col">
+              <div className="border border-border-default rounded-xl p-6 bg-bg-secondary shadow-sm flex flex-col">
                 <h3 className="text-xl font-bold text-text-primary mb-2">Scale</h3>
                 <p className="text-sm text-text-secondary mb-4">Automate your business</p>
                 <div className="mb-6"><span className="text-3xl font-bold">₹4,999</span><span className="text-text-secondary">/mo</span></div>
@@ -94,7 +94,7 @@ export default function DashboardLayout({
                   <li className="flex items-start gap-2 text-sm"><CheckCircle2 className="h-4 w-4 text-brand shrink-0 mt-0.5" /> 15,000 messages / mo</li>
                   <li className="flex items-start gap-2 text-sm"><CheckCircle2 className="h-4 w-4 text-brand shrink-0 mt-0.5" /> 50 bots</li>
                 </ul>
-                <Link href="/pricing" className="block w-full">
+                <Link href="/dashboard/billing" className="block w-full">
                   <Button className="w-full">Choose Scale</Button>
                 </Link>
               </div>
@@ -120,8 +120,8 @@ export default function DashboardLayout({
           <p className="text-sm font-medium text-warning-foreground">
             Your free trial ends in {daysRemaining} day{daysRemaining !== 1 ? 's' : ''}. Pick a plan to keep your bot running.
           </p>
-          <Link href="/pricing">
-            <Button size="sm" variant="outline" className="h-7 text-xs border-warning/30 bg-white hover:bg-warning/10 text-warning-foreground">View plans</Button>
+          <Link href="/dashboard/billing">
+            <Button size="sm" variant="outline" className="h-7 text-xs border-warning/30 bg-bg-primary hover:bg-warning/10 text-warning-foreground">View plans</Button>
           </Link>
         </div>
       )}

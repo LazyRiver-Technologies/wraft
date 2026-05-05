@@ -4,16 +4,15 @@ from fastapi import Request, HTTPException, Header
 from config import settings
 from datetime import datetime, timezone
 import logging
+from redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 
-# Basic rate limit for admin login logic using an in-memory dictionary.
-# In production, you would map this natively through Redis to properly bound multiple workers
-login_attempts: dict = {}
+ADMIN_LOGIN_ATTEMPTS_KEY = "admin_login_attempts:{ip}"
 MAX_ATTEMPTS = 5
 LOCKOUT_SECONDS = 3600  # 1 hour
 
-def check_ip_whitelist(request: Request):
+async def check_ip_whitelist(request: Request):
     if not settings.ADMIN_ALLOWED_IPS:
         return  # no restriction
         
@@ -28,12 +27,18 @@ async def require_admin(
     request: Request,
     authorization: str = Header(None)
 ):
-    check_ip_whitelist(request)
+    await check_ip_whitelist(request)
     
-    if not authorization or not authorization.startswith("Bearer "):
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    else:
+        # Fallback to query param for EventSource/SSE
+        token = request.query_params.get("token")
+        
+    if not token:
         raise HTTPException(status_code=401, detail="No token")
     
-    token = authorization.replace("Bearer ", "")
     try:
         payload = jwt.decode(
             token,

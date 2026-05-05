@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from fastapi import HTTPException
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -11,12 +12,29 @@ async def get_profile_with_plan(owner_id: str, db):
             .eq("id", owner_id)\
             .single()\
             .execute()
-        return result.data
+        profile = result.data
+        if profile:
+            today = date.today()
+            cycle_start_raw = profile.get("billing_cycle_start")
+            if cycle_start_raw:
+                try:
+                    cycle_start = date.fromisoformat(cycle_start_raw)
+                    if cycle_start.year != today.year or cycle_start.month != today.month:
+                        await db.table("profiles").update({
+                            "monthly_message_count": 0,
+                            "billing_cycle_start": today.isoformat(),
+                            "overage_messages": 0
+                        }).eq("id", owner_id).execute()
+                        profile["monthly_message_count"] = 0
+                        profile["billing_cycle_start"] = today.isoformat()
+                except Exception:
+                    logger.warning("Failed to evaluate billing cycle reset for owner %s", owner_id)
+        return profile
     except Exception as e:
         logger.error(f"Error fetching profile for user {owner_id}: {e}")
         raise HTTPException(
             status_code=403, 
-            detail="Your account profile or subscription plan was not found. Please ensure your account is properly initialized."
+            detail="Your account profile or subscription plan was not found. Please ensure your account is properly initialized via the database auth trigger."
         )
 
 async def check_trial_expiry(profile: dict) -> None:
@@ -24,18 +42,23 @@ async def check_trial_expiry(profile: dict) -> None:
     if plan["name"] != "trial":
         return
     
-    trial_start = datetime.fromisoformat(
-        profile["trial_started_at"].replace("Z", "+00:00")
-    )
-    now = datetime.now(timezone.utc)
-    days_elapsed = (now - trial_start).days
+    trial_days = 30 + profile.get("trial_extended_days", 0)
     
-    if days_elapsed > 30 or profile.get("trial_expired"):
+    if not profile.get("trial_started_at"):
+        days_elapsed = 0
+    else:
+        trial_start = datetime.fromisoformat(
+            profile["trial_started_at"].replace("Z", "+00:00")
+        )
+        now = datetime.now(timezone.utc)
+        days_elapsed = (now - trial_start).days
+    
+    if days_elapsed > trial_days or profile.get("trial_expired"):
         raise HTTPException(
             status_code=402,
             detail={
                 "error": "trial_expired",
-                "message": "Your 30-day free trial has ended.",
+                "message": f"Your {trial_days}-day free trial has ended.",
                 "upgrade_url": "/pricing"
             }
         )
@@ -261,6 +284,55 @@ async def check_actions_limit(
                 "upgrade_url": "/pricing"
             }
         )
+
+async def check_feature_flag(
+    flag_name: str,
+    owner_id: str,
+    plan_name: str,
+    db,
+    redis
+) -> bool:
+    """
+    Check if a feature flag is enabled for this user.
+    Cached in Redis for 60 seconds to avoid DB hammering.
+    """
+    cache_key = f"flag:{flag_name}"
+    try:
+        if redis is not None:
+            cached = await redis.get(cache_key)
+            if cached:
+                flag_data = json.loads(cached)
+            else:
+                res = await db.table("feature_flags").select("*").eq("flag_name", flag_name).single().execute()
+                flag_data = res.data if res.data else None
+                if flag_data:
+                    await redis.setex(cache_key, 60, json.dumps(flag_data))
+        else:
+            res = await db.table("feature_flags").select("*").eq("flag_name", flag_name).single().execute()
+            flag_data = res.data if res.data else None
+    except Exception:
+        flag_data = None
+
+    if not flag_data:
+        return True  # Flag not found = enabled by default
+    
+    if not flag_data["is_enabled"]:
+        return False  # Globally disabled
+    
+    enabled_for = flag_data["enabled_for"]
+    
+    if enabled_for == "all":
+        return True
+    if enabled_for == "paid":
+        return plan_name != "trial"
+    if enabled_for == "pro_above":
+        return plan_name in ["growth", "scale"]
+    if enabled_for == "scale":
+        return plan_name == "scale"
+    if enabled_for == "specific":
+        return owner_id in (flag_data.get("specific_user_ids") or [])
+    
+    return False
 
 # Maintain increment_usage for rag.py imports
 async def increment_usage(owner_id: str, bot_id: str, tokens: int, channel: str, db) -> None:

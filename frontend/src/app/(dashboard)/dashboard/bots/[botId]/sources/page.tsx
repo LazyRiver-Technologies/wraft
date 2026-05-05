@@ -14,13 +14,10 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useSources, useDeleteSource, useRetrainSource, useUpdateSource, useCreateSource } from "@/hooks/api/useSources"
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/hooks/use-toast"
+import { useProfileWithPlan } from "@/hooks/api/useBilling"
+import { FeatureGate } from "@/components/ui/FeatureGate"
 
 type SourceModalType = 'pdf' | 'url' | 'sitemap' | 'text' | null;
 
@@ -34,6 +31,7 @@ export default function BotSourcesPage(props: { params: any }) {
   const retrainSource = useRetrainSource()
   const updateSource = useUpdateSource()
   const createSource = useCreateSource()
+  const { data: profile } = useProfileWithPlan()
 
   const [activeModal, setActiveModal] = useState<SourceModalType>(null)
   
@@ -59,6 +57,24 @@ export default function BotSourcesPage(props: { params: any }) {
   
   const handleToggleRetrain = (sourceId: string, checked: boolean) => 
     updateSource.mutate({ botId: params.botId, sourceId, options: { auto_retrain: checked } })
+    
+  const handleRetrainFrequency = (sourceId: string, frequency: 'daily' | 'weekly' | 'monthly') => 
+    updateSource.mutate({ botId: params.botId, sourceId, options: { retrain_frequency: frequency } })
+
+  const formatRelativeTime = (dateStr: string) => {
+    if (!dateStr) return "";
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) return "just now";
+    const diffInMinutes = Math.floor(diffInSeconds / 60);
+    if (diffInMinutes < 60) return `${diffInMinutes} minute${diffInMinutes !== 1 ? 's' : ''} ago`;
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `${diffInHours} hour${diffInHours !== 1 ? 's' : ''} ago`;
+    const diffInDays = Math.floor(diffInHours / 24);
+    return `${diffInDays} day${diffInDays !== 1 ? 's' : ''} ago`;
+  }
   
   const resetModal = () => {
     setActiveModal(null)
@@ -135,9 +151,11 @@ export default function BotSourcesPage(props: { params: any }) {
             <DropdownMenuItem className="cursor-pointer focus:bg-bg-tertiary focus:text-text-primary py-2" onSelect={() => setActiveModal('url')}>
               <Globe className="mr-2 h-4 w-4 text-success" /> Web URL
             </DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer focus:bg-bg-tertiary focus:text-text-primary py-2" onSelect={() => setActiveModal('sitemap')}>
-              <Map className="mr-2 h-4 w-4 text-warning" /> Sitemap
-            </DropdownMenuItem>
+            <FeatureGate hasAccess={profile?.plans?.sitemap_source === true} requiredPlan="Starter">
+              <DropdownMenuItem className="cursor-pointer focus:bg-bg-tertiary focus:text-text-primary py-2" onSelect={() => setActiveModal('sitemap')}>
+                <Map className="mr-2 h-4 w-4 text-warning" /> Sitemap
+              </DropdownMenuItem>
+            </FeatureGate>
             <DropdownMenuItem className="cursor-pointer focus:bg-bg-tertiary focus:text-text-primary py-2" onSelect={() => setActiveModal('text')}>
               <Type className="mr-2 h-4 w-4 text-text-primary" /> Raw Text
             </DropdownMenuItem>
@@ -191,38 +209,77 @@ export default function BotSourcesPage(props: { params: any }) {
                 {/* Error rendering inline if failed */}
                 {source.status === 'failed' && (
                   <p className="text-[11px] text-danger mt-1 flex items-center gap-1 font-medium">
-                    <AlertCircle className="h-3 w-3" /> {source.error || "Training failed"}
+                    <AlertCircle className="h-3 w-3 shrink-0" /> 
+                    <span className="truncate max-w-[200px] md:max-w-[400px]">
+                      {(source.error_msg || source.error || "Training failed").length > 80 
+                        ? (source.error_msg || source.error || "Training failed").substring(0, 80) + '...'
+                        : (source.error_msg || source.error || "Training failed")}
+                    </span>
                   </p>
                 )}
                 <div className="flex items-center gap-3 mt-1.5 lg:hidden">
-                   <span className="text-[11px] text-text-tertiary font-medium uppercase tracking-widest">{source.chunk_count || source.chunks || 0} chunks</span>
+                   {source.status === 'ready' && <span className="text-[11px] text-text-tertiary font-medium uppercase tracking-widest">{source.chunk_count || source.chunks || 0} chunks</span>}
                 </div>
               </div>
             </div>
 
             {/* Middle Box: Data Specs */}
-            <div className="hidden lg:flex flex-col mx-8 flex-1">
-              <span className="text-sm font-semibold text-text-primary">{source.chunk_count || source.chunks || 0} chunks</span>
-              <span className="text-[11px] text-text-tertiary uppercase tracking-widest font-bold">Stored Knowledge</span>
-            </div>
+            {source.status === 'ready' && (
+              <div className="hidden lg:flex flex-col mx-8 flex-1">
+                <span className="text-sm font-semibold text-text-primary">{source.chunk_count || source.chunks || 0} chunks</span>
+                <span className="text-[11px] text-text-tertiary uppercase tracking-widest font-bold">Stored Knowledge</span>
+              </div>
+            )}
+            {source.type === 'pdf' && source.file_size_bytes != null && (
+              <div className="hidden lg:flex flex-col mx-8 flex-1">
+                <span className="text-sm font-semibold text-text-primary">
+                  {source.file_size_bytes < 1024 
+                    ? `${source.file_size_bytes} B` 
+                    : source.file_size_bytes < 1048576 
+                    ? `${(source.file_size_bytes / 1024).toFixed(1)} KB` 
+                    : `${(source.file_size_bytes / 1048576).toFixed(1)} MB`}
+                </span>
+                <span className="text-[11px] text-text-tertiary uppercase tracking-widest font-bold">File Size</span>
+              </div>
+            )}
+            {(source.type === 'url' || source.type === 'sitemap') && source.last_retrained_at && (
+              <div className="hidden lg:flex flex-col mx-8 flex-1">
+                <span className="text-sm font-semibold text-text-primary">Last updated {formatRelativeTime(source.last_retrained_at)}</span>
+                <span className="text-[11px] text-text-tertiary uppercase tracking-widest font-bold">Sync Status</span>
+              </div>
+            )}
 
             {/* Right Box: Status & Controls */}
             <div className="flex items-center gap-4 justify-between sm:justify-end border-t border-border-default sm:border-t-0 pt-3 sm:pt-0">
               
-              {source.status === 'processing' && <Badge variant="brand" className="animate-pulse h-6">Processing</Badge>}
+              {source.status === 'pending' && <Badge variant="outline" className="h-6 text-warning border-warning/50 bg-warning/10">Pending</Badge>}
+              {source.status === 'processing' && <Badge variant="brand" className="animate-pulse h-6"><Loader2 className="mr-1.5 h-3 w-3 animate-spin"/>Processing</Badge>}
               {source.status === 'ready' && <Badge variant="success" className="h-6">Ready</Badge>}
               {source.status === 'failed' && <Badge variant="danger" className="h-6">Failed</Badge>}
 
               <div className="flex items-center gap-4 ml-2">
                 {(source.type === 'url' || source.type === 'sitemap') && (
-                  <div className="flex items-center gap-2 bg-bg-tertiary/50 px-2 py-1 rounded-lg">
-                    <span className="text-[10px] text-text-tertiary font-bold uppercase hidden md:inline">Auto-sync</span>
-                    <Switch 
-                       checked={source.auto_retrain ?? source.autoRetrain} 
-                       onCheckedChange={(checked) => handleToggleRetrain(source.id, checked)} 
-                       className="scale-75"
-                    />
-                  </div>
+                  <FeatureGate hasAccess={profile?.plans?.auto_retrain_frequency != null} requiredPlan="Growth">
+                    <div className="flex items-center gap-2 bg-bg-tertiary/50 px-2 py-1 rounded-lg">
+                      <span className="text-[10px] text-text-tertiary font-bold uppercase hidden md:inline">Auto-sync</span>
+                      <Switch 
+                         checked={!!source.auto_retrain} 
+                         onCheckedChange={(checked) => handleToggleRetrain(source.id, checked)} 
+                         className="scale-75"
+                      />
+                      {source.auto_retrain && (
+                        <select 
+                          className="bg-transparent text-[10px] font-medium text-text-secondary outline-none border-none cursor-pointer uppercase ml-1"
+                          value={source.retrain_frequency || 'weekly'}
+                          onChange={(e) => handleRetrainFrequency(source.id, e.target.value as 'daily' | 'weekly' | 'monthly')}
+                        >
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                          <option value="monthly">Monthly</option>
+                        </select>
+                      )}
+                    </div>
+                  </FeatureGate>
                 )}
                 
                 <div className="flex items-center gap-1 ml-1">

@@ -49,9 +49,11 @@ export default function BotsListPage() {
         {/* Existing Bots */}
         {bots.map((bot) => {
           const stats = {
-            convos: Number(bot.chunk_count || 0),
-            messages: Number(bot.message_count || 0),
-            leads: Number(bot.lead_count || 0)
+            convos: bot.conversations?.[0]?.count || 0,
+            messages: bot.this_month?.message_count || 0,
+            web: bot.this_month?.web_count || 0,
+            whatsapp: bot.this_month?.whatsapp_count || 0,
+            leads: bot.leads?.[0]?.count || 0,
           }
           
           const hasWhatsApp = Array.isArray(bot.whatsapp_configs) && bot.whatsapp_configs.length > 0;

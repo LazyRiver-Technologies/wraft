@@ -50,8 +50,8 @@ export default function BotLeadsPage(props: { params: any }) {
       l.name || "Unknown",
       l.email || "",
       l.phone || "",
-      l.source || "Web",
-      (l.message_preview || "").replace(/"/g, '""'),
+      l.channel || "web",
+      getLeadPreview(l).replace(/"/g, '""'),
       l.is_contacted ? "Contacted" : "Pending",
       new Date(l.created_at).toISOString()
     ])
@@ -74,6 +74,12 @@ export default function BotLeadsPage(props: { params: any }) {
   const contactedCount = leads.filter((l:any) => l.is_contacted).length
   const waReadyCount = leads.filter((l:any) => l.phone).length
 
+  const getLeadPreview = (lead: any) => {
+    const context = Array.isArray(lead.context) ? lead.context : []
+    const lastUserMessage = [...context].reverse().find((m: any) => m?.role === "user")?.content
+    return lastUserMessage || lead.notes || "No message data"
+  }
+
   return (
     <div className="pb-10 animate-in fade-in duration-500">
       <PageHeader 
@@ -88,6 +94,7 @@ export default function BotLeadsPage(props: { params: any }) {
       </PageHeader>
 
       <div className="flex flex-col gap-6 mt-6">
+        <FeatureGate hasAccess={profile?.plans?.lead_capture === true} requiredPlan="Starter">
         
         {/* STATS BAR */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -175,7 +182,7 @@ export default function BotLeadsPage(props: { params: any }) {
                         </Avatar>
                         <div className="flex flex-col">
                           <span className="font-semibold text-text-primary text-sm">{lead.name || "Anonymous"}</span>
-                          <Badge variant="outline" className="w-fit text-[9px] px-1 py-0 h-4 bg-bg-tertiary border-none uppercase tracking-tighter font-bold">{lead.source || "Web"}</Badge>
+                          <Badge variant="outline" className="w-fit text-[9px] px-1 py-0 h-4 bg-bg-tertiary border-none uppercase tracking-tighter font-bold">{lead.channel || "web"}</Badge>
                         </div>
                       </div>
                     </TableCell>
@@ -197,7 +204,7 @@ export default function BotLeadsPage(props: { params: any }) {
                     </TableCell>
                     <TableCell>
                       <span className="text-xs text-text-tertiary italic line-clamp-1 max-w-[200px]">
-                        &quot;{lead.message_preview || "No message data"}&quot;
+                        &quot;{getLeadPreview(lead)}&quot;
                       </span>
                     </TableCell>
                     <TableCell>
@@ -238,7 +245,7 @@ export default function BotLeadsPage(props: { params: any }) {
             </TableBody>
           </Table>
         </div>
-
+        </FeatureGate>
       </div>
     </div>
   )

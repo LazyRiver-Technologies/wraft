@@ -66,6 +66,18 @@ async def handle_whatsapp_webhook(
          
     bot_id = bot_res.data["id"]
     owner_id = bot_res.data["owner_id"]
+    webhook_log_id = None
+    try:
+        log_res = await db.table("webhook_logs").insert({
+            "bot_id": bot_id,
+            "channel": "whatsapp",
+            "payload": json.loads(raw_payload_bytes.decode("utf-8") or "{}"),
+            "status": "received"
+        }).execute()
+        if log_res.data:
+            webhook_log_id = log_res.data[0]["id"]
+    except Exception:
+        webhook_log_id = None
     
     profile = await get_profile_with_plan(owner_id, db)
     if profile.get("plans", {}).get("name") == "trial":
@@ -94,16 +106,22 @@ async def handle_whatsapp_webhook(
 
     # 3. Prevent duplicate processing
     dedup_key = f"wa_msg:{message_id}"
-    is_duplicate = await redis.exists(dedup_key)
+    is_duplicate = await redis.exists(dedup_key) if redis is not None else False
     
     if is_duplicate:
          return Response(status_code=200)
          
-    await redis.set(dedup_key, "1", ex=86400) # Expire duplicate key linearly at 24 hours
+    if redis is not None:
+        await redis.set(dedup_key, "1", ex=86400) # Expire duplicate key linearly at 24 hours
 
     # 4. Enqueue Heavy Duty Work to BullMQ mapping natively under 5 seconds!
     
     background_tasks.add_task(process_whatsapp_job, bot_slug, bot_id, from_number, message_text, db, redis)
+    if webhook_log_id:
+        try:
+            await db.table("webhook_logs").update({"status": "processed"}).eq("id", webhook_log_id).execute()
+        except Exception:
+            pass
 
     # 6. Webhooks acknowledge rapidly
     return Response(content="success", status_code=200)

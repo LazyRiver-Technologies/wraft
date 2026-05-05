@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/utils/supabase/client'
+import { fetchApi } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,16 +15,24 @@ import { PageHeader } from "@/components/ui/page-header"
 import { useProfileWithPlan } from "@/hooks/api/useBilling"
 import { FeatureGate } from "@/components/ui/FeatureGate"
 
-function ChatWidgetMock({ theme, welcomeMsg, placeholder }: { theme: string, welcomeMsg: string, placeholder: string }) {
+function ChatWidgetMock({ theme, welcomeMsg, placeholder, botAvatarUrl, botName }: { theme: string, welcomeMsg: string, placeholder: string, botAvatarUrl?: string, botName?: string }) {
   const [open, setOpen] = useState(true)
   
   return (
     <div className="relative w-[350px] h-[500px] border border-border-default rounded-xl overflow-hidden bg-bg-primary flex flex-col shadow-xl">
       {/* Header */}
       <div className="flex items-center justify-between p-4 text-white" style={{ backgroundColor: theme }}>
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-5 w-5" />
-          <span className="font-semibold text-sm">Support Agent</span>
+        <div className="flex items-center gap-3">
+          <div className="bg-white/20 p-1.5 rounded-full flex items-center justify-center overflow-hidden h-8 w-8">
+             {botAvatarUrl ? (
+               <img src={botAvatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+             ) : (
+               <span className="font-bold text-sm">
+                 {botName ? botName.charAt(0).toUpperCase() : <MessageSquare className="h-4 w-4" />}
+               </span>
+             )}
+          </div>
+          <span className="font-semibold text-sm">{botName || "Support Agent"}</span>
         </div>
         <button onClick={() => setOpen(!open)} className="hover:opacity-80 transition-opacity"><X className="h-4 w-4" /></button>
       </div>
@@ -75,6 +84,7 @@ export default function AppearancePage(props: { params: any }) {
         .from('bots')
         .select('*, bot_appearance(*)')
         .eq('id', botId)
+        .is('deleted_at', null)
         .single()
       if (error) throw error
       return data
@@ -85,7 +95,9 @@ export default function AppearancePage(props: { params: any }) {
     theme_color: '#7C5CFC',
     welcome_message: 'Hi there! How can I help you today?',
     placeholder_text: 'Type your message...',
-    position: 'bottom-right'
+    position: 'bottom-right',
+    bot_avatar_url: '',
+    launcher_icon: 'chat'
   })
 
   useEffect(() => {
@@ -94,21 +106,19 @@ export default function AppearancePage(props: { params: any }) {
         theme_color: bot.bot_appearance.theme_color || '#7C5CFC',
         welcome_message: bot.bot_appearance.welcome_message || '',
         placeholder_text: bot.bot_appearance.placeholder_text || '',
-        position: bot.bot_appearance.position || 'bottom-right'
+        position: bot.bot_appearance.position || 'bottom-right',
+        bot_avatar_url: bot.bot_appearance.bot_avatar_url || '',
+        launcher_icon: bot.bot_appearance.launcher_icon || 'chat'
       })
     }
   }, [bot])
 
   const { mutate, isPending } = useMutation({
-    mutationFn: async (patch: Record<string, unknown>) => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('bot_appearance')
-        .update(patch)
-        .eq('bot_id', botId)
-      if (error) throw error
-      return data
-    },
+    mutationFn: (patch: Record<string, unknown>) =>
+      fetchApi(`/api/v1/bots/${botId}/appearance`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bot', botId] })
       toast({ title: "Success", description: "Appearance settings saved." })
@@ -118,7 +128,7 @@ export default function AppearancePage(props: { params: any }) {
 
   const domain = typeof window !== 'undefined' ? window.location.origin : 'https://yourdomain.com'
   const slug = bot?.slug || 'your-bot-slug'
-  const embedCode = `<script src="${domain}/widget.js" data-bot-slug="${slug}"></script>`
+  const embedCode = `<script src="https://wraft.in/widget.js" data-bot-slug="${slug}"></script>`
 
   if (isLoading) return (
     <div className="pb-10 animate-in fade-in duration-500">
@@ -188,6 +198,26 @@ export default function AppearancePage(props: { params: any }) {
                 />
               </div>
 
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-widest text-text-tertiary">Bot Avatar URL</label>
+                <Input 
+                  value={appearance.bot_avatar_url} 
+                  onChange={e => setAppearance({...appearance, bot_avatar_url: e.target.value})} 
+                  placeholder="https://example.com/avatar.png"
+                  className="bg-bg-primary border-border-default h-11 focus:border-brand"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-widest text-text-tertiary">Launcher Icon</label>
+                <Input 
+                  value={appearance.launcher_icon} 
+                  onChange={e => setAppearance({...appearance, launcher_icon: e.target.value})} 
+                  placeholder="chat"
+                  className="bg-bg-primary border-border-default h-11 focus:border-brand"
+                />
+              </div>
+
               <div className="space-y-3 pt-2">
                 <label className="text-xs font-bold uppercase tracking-widest text-text-tertiary">Widget Position</label>
                 <div className="flex items-center gap-6">
@@ -247,7 +277,13 @@ export default function AppearancePage(props: { params: any }) {
         {/* Mock Preview */}
         <div className="bg-bg-tertiary/30 rounded-2xl flex items-center justify-center min-h-[600px] border border-border-default lg:w-[450px] relative overflow-hidden p-8">
           <div className="absolute inset-0 bg-[linear-gradient(to_right,var(--border-default)_1px,transparent_1px),linear-gradient(to_bottom,var(--border-default)_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-20" />
-          <ChatWidgetMock theme={appearance.theme_color} welcomeMsg={appearance.welcome_message} placeholder={appearance.placeholder_text} />
+          <ChatWidgetMock 
+            theme={appearance.theme_color} 
+            welcomeMsg={appearance.welcome_message} 
+            placeholder={appearance.placeholder_text} 
+            botAvatarUrl={appearance.bot_avatar_url}
+            botName={bot?.name}
+          />
         </div>
       </div>
     </div>

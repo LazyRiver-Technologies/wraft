@@ -144,35 +144,42 @@ export function DashboardHeader({ setMobileOpen }: { setMobileOpen?: (b: boolean
         
         {/* Plan / Usage (Desktop Only) */}
         <div className="hidden lg:flex items-center gap-4 mr-2">
-          {isTrial ? (
+          {/* Trial Badge */}
+          {isTrial && (
             <div className={`text-xs font-medium px-2.5 py-1 rounded-full flex items-center gap-1.5 ${
               trialDaysRemaining > 7 ? "bg-success/10 text-success" :
               trialDaysRemaining > 3 ? "bg-warning/10 text-warning" : "bg-danger/10 text-danger"
             }`}>
               Trial: {trialDaysRemaining} days left
             </div>
-          ) : (
-            <div className="flex flex-col items-end gap-1 min-w-[120px]">
-              <div className={`text-[10px] font-medium flex items-center gap-1.5 ${getUsageColorClass()}`}>
-                {usagePercentage >= 80 && usagePercentage < 100 && (
-                  <span className="relative flex h-1.5 w-1.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-warning"></span>
-                  </span>
-                )}
-                {usagePercentage >= 100 ? "Limit reached" : `${usedMessages.toLocaleString()} / ${maxMessages.toLocaleString()} msg`}
-              </div>
-              <div className="h-1.5 w-full bg-bg-tertiary rounded-full overflow-hidden">
-                <div className={`h-full transition-all ${getProgressColorClass()}`} style={{ width: `${usagePercentage}%` }} />
-              </div>
-            </div>
           )}
+
+          {/* Usage Progress Bar (Always visible) */}
+          <div className="flex flex-col items-end gap-1 min-w-[120px]">
+            <div className={`text-[10px] font-medium flex items-center gap-1.5 ${getUsageColorClass()}`}>
+              {usagePercentage >= 80 && usagePercentage < 100 && (
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-warning"></span>
+                </span>
+              )}
+              {usagePercentage >= 100 ? "Limit reached" : `${usedMessages.toLocaleString()} / ${maxMessages.toLocaleString()} msg`}
+            </div>
+            <div className="h-1.5 w-full bg-bg-tertiary rounded-full overflow-hidden">
+              <div className={`h-full transition-all ${getProgressColorClass()}`} style={{ width: `${usagePercentage}%` }} />
+            </div>
+            {usage?.overage_messages ? (
+              <div className="text-danger text-[10px] mt-0.5 whitespace-nowrap">
+                +{usage.overage_messages.toLocaleString()} extra &middot; &#8377;{usage.overage_cost_inr?.toFixed(2) || "0.00"}
+              </div>
+            ) : null}
+          </div>
           
-          <Link href="/pricing">
-            {usagePercentage >= 100 && !isTrial ? (
-              <Button size="sm" className="h-7 text-xs px-3">Upgrade</Button>
+          <Link href="/dashboard/billing">
+            {(usagePercentage >= 100 || isTrial) ? (
+              <Button size="sm" className="h-7 text-xs px-3 bg-brand hover:bg-brand-hover text-white shadow-sm border border-brand/20">Upgrade</Button>
             ) : (
-              <Badge variant={isTrial ? "outline" : "brand"} className="capitalize cursor-pointer hover:opacity-80 transition-opacity">
+              <Badge variant="outline" className="capitalize cursor-pointer hover:bg-bg-tertiary transition-colors border-border-default">
                 {planName}
               </Badge>
             )}

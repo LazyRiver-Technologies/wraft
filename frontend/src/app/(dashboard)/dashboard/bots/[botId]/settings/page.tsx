@@ -16,14 +16,20 @@ import {
 } from "@/hooks/api/useBots"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
+import { useProfileWithPlan } from "@/hooks/api/useBilling"
+import { FeatureGate } from "@/components/ui/FeatureGate"
 
 export default function BotSettingsPage(props: { params: any }) {
   const params = React.use(props.params as Promise<{ botId: string }>)
   const [activeTab, setActiveTab] = useState("general")
   const router = useRouter()
   const { toast } = useToast()
+  const { data: profile } = useProfileWithPlan()
   
   const { data: bot, isLoading } = useBot(params.botId)
+  const notificationSettings = Array.isArray(bot?.notification_settings)
+    ? bot?.notification_settings[0]
+    : bot?.notification_settings
   
   const updateBot = useUpdateBot()
   const updateSettings = useUpdateBotSettings()
@@ -40,7 +46,11 @@ export default function BotSettingsPage(props: { params: any }) {
     search_mode: "hybrid",
     max_chunks: 5,
     fallback_message: "I'm sorry, I couldn't find information about that. Let me connect you to a human.",
-    guardrails_enabled: true
+    guardrails_enabled: true,
+    lead_capture_enabled: false,
+    lead_capture_trigger: 2,
+    lead_capture_message: "May I have your name and phone number to follow up?",
+    acronym_map: {} as Record<string, string>
   })
 
   React.useEffect(() => {
@@ -52,7 +62,11 @@ export default function BotSettingsPage(props: { params: any }) {
         search_mode: bot.bot_settings?.search_mode || prev.search_mode,
         max_chunks: bot.bot_settings?.max_chunks || prev.max_chunks,
         fallback_message: bot.bot_settings?.fallback_message || prev.fallback_message,
-        guardrails_enabled: bot.bot_settings?.guardrails_enabled ?? prev.guardrails_enabled
+        guardrails_enabled: bot.bot_settings?.guardrails_enabled ?? prev.guardrails_enabled,
+        lead_capture_enabled: bot.bot_settings?.lead_capture_enabled ?? prev.lead_capture_enabled,
+        lead_capture_trigger: bot.bot_settings?.lead_capture_trigger ?? prev.lead_capture_trigger,
+        lead_capture_message: bot.bot_settings?.lead_capture_message || prev.lead_capture_message,
+        acronym_map: bot.bot_settings?.acronym_map || prev.acronym_map
       }))
     }
   }, [bot])
@@ -87,12 +101,14 @@ export default function BotSettingsPage(props: { params: any }) {
       botId: params.botId,
       data: {
         owner_whatsapp: (formData.get("owner_whatsapp") as string) || undefined,
-        notify_on_lead: formData.get("notify_on_lead") === "on",
-        notify_on_fallback: formData.get("notify_on_fallback") === "on",
-        notify_on_escalation: formData.get("notify_on_escalation") === "on",
+        notify_new_lead: formData.get("notify_new_lead") === "on",
+        notify_fallback: formData.get("notify_fallback") === "on",
+        notify_escalation: formData.get("notify_escalation") === "on",
+        notify_negative_sentiment: formData.get("notify_negative_sentiment") === "on",
       }
     }, {
-      onSuccess: () => toast({ title: "Success", description: "Notification settings saved." })
+      onSuccess: () => toast({ title: "Success", description: "Notification settings saved." }),
+      onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" })
     })
   }
 
@@ -276,24 +292,29 @@ export default function BotSettingsPage(props: { params: any }) {
                 <div className="grid gap-2 flex-1">
                   <label className="text-sm font-medium text-text-primary">Owner WhatsApp Number</label>
                   <p className="text-xs text-text-tertiary">Include country code (e.g. +91...)</p>
-                  <Input name="owner_whatsapp" defaultValue={bot.bot_settings?.owner_whatsapp || ""} placeholder="+91..." className="bg-bg-secondary border-border-default" />
+                  <Input name="owner_whatsapp" defaultValue={notificationSettings?.owner_whatsapp || ""} placeholder="+91..." className="bg-bg-secondary border-border-default" />
                 </div>
                 <Button variant="outline" type="button" className="h-10">Test</Button>
               </div>
 
-              {[
-                { name: "notify_on_lead", title: "New lead detected", desc: "Alert when a user provides contact info.", defaultChecked: bot.bot_settings?.notify_on_lead },
-                { name: "notify_on_fallback", title: "Bot couldn't answer", desc: "Alert when fallback message is triggered.", defaultChecked: bot.bot_settings?.notify_on_fallback },
-                { name: "notify_on_escalation", title: "Human request", desc: "Alert when user explicitly asks for support agent.", defaultChecked: bot.bot_settings?.notify_on_escalation },
-              ].map((notif, i) => (
-                <div key={notif.name} className="flex items-center justify-between p-4 rounded-xl border border-border-default bg-bg-secondary max-w-2xl shadow-sm">
-                  <div className="flex flex-col gap-1">
-                    <h4 className="font-medium text-text-primary text-sm">{notif.title}</h4>
-                    <p className="text-xs text-text-tertiary">{notif.desc}</p>
-                  </div>
-                  <Switch name={notif.name} defaultChecked={notif.defaultChecked !== false} />
+              <FeatureGate hasAccess={profile?.plans?.wa_notifications === true} requiredPlan="Growth">
+                <div className="flex flex-col gap-4 w-full">
+                  {[
+                    { name: "notify_new_lead", title: "New lead detected", desc: "Alert when a user provides contact info.", defaultChecked: notificationSettings?.notify_new_lead },
+                    { name: "notify_fallback", title: "Bot couldn't answer", desc: "Alert when fallback message is triggered.", defaultChecked: notificationSettings?.notify_fallback },
+                    { name: "notify_escalation", title: "Human request", desc: "Alert when user explicitly asks for support agent.", defaultChecked: notificationSettings?.notify_escalation },
+                    { name: "notify_negative_sentiment", title: "Negative Sentiment", desc: "Alert when a user expresses strong dissatisfaction.", defaultChecked: notificationSettings?.notify_negative_sentiment },
+                  ].map((notif, i) => (
+                    <div key={notif.name} className="flex items-center justify-between p-4 rounded-xl border border-border-default bg-bg-secondary max-w-2xl shadow-sm">
+                      <div className="flex flex-col gap-1">
+                        <h4 className="font-medium text-text-primary text-sm">{notif.title}</h4>
+                        <p className="text-xs text-text-tertiary">{notif.desc}</p>
+                      </div>
+                      <Switch name={notif.name} defaultChecked={notif.defaultChecked !== false} />
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </FeatureGate>
               
               <Button type="submit" disabled={updateNotifications.isPending} className="w-fit mt-4">
                 {updateNotifications.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}

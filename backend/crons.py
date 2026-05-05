@@ -147,7 +147,7 @@ async def run_weekly_jobs():
             async def bounded_compute(bot_id):
                 async with sem:
                     try:
-                        await compute_suggestions(bot_id, db)
+                        await compute_suggestions(bot_id, db, redis)
                     except Exception as e:
                         logger.error(f"Failed to compute suggestions for {bot_id}: {e}")
                         

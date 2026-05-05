@@ -12,6 +12,7 @@ export function useSources(botId?: string) {
         .from('data_sources')
         .select('*')
         .eq('bot_id', botId!)
+        .is('deleted_at', null)
         .order('created_at', { ascending: false })
         
       if (error) throw error

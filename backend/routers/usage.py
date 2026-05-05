@@ -23,14 +23,19 @@ async def get_my_usage(user=Depends(get_current_user), db=Depends(get_db)):
     trial_days_remaining = 0
     
     if plan_name == "trial" and profile.get("trial_started_at"):
+        trial_days = 30 + profile.get("trial_extended_days", 0)
         trial_start = datetime.fromisoformat(
             profile["trial_started_at"].replace("Z", "+00:00")
         )
         now = datetime.now(timezone.utc)
         days_elapsed = (now - trial_start).days
-        trial_days_remaining = max(0, 30 - days_elapsed)
+        trial_days_remaining = max(0, trial_days - days_elapsed)
         if profile.get("trial_expired"):
             trial_days_remaining = 0
+
+    overage_messages = profile.get("overage_messages", 0)
+    overage_price_paise = plan.get("overage_price_paise", 0)
+    overage_cost_inr = (overage_messages * overage_price_paise) / 100.0
 
     return {
         "plan_name": plan_name,
@@ -38,5 +43,7 @@ async def get_my_usage(user=Depends(get_current_user), db=Depends(get_db)):
         "messages_limit": messages_limit,
         "days_in_cycle": days_in_cycle,
         "trial_days_remaining": trial_days_remaining,
-        "overage_messages": profile.get("overage_messages", 0)
+        "overage_messages": overage_messages,
+        "overage_cost_inr": overage_cost_inr,
+        "billing_cycle_start": profile.get("billing_cycle_start")
     }

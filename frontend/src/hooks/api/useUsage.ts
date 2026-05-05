@@ -8,6 +8,8 @@ export interface UsageData {
   days_in_cycle: number
   trial_days_remaining: number
   overage_messages: number
+  overage_cost_inr: number
+  billing_cycle_start: string
 }
 
 export function useUsage() {

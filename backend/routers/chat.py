@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, constr, Field
 from typing import Optional
 from datetime import datetime, timezone
-from datetime import datetime, timezone
 import re
 import asyncio
 from database import get_db
@@ -142,10 +141,15 @@ async def send_chat_message(bot_slug: str, req: ChatRequest, db=Depends(get_db),
             context_list = [{"role": m["role"], "content": m["content"]} for m in history[-2:]]
             context_list.append({"role": "user", "content": req.message})
             
+            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', req.message)
+            name_match = re.search(r'(?:my name is|name is|i am|i\'m|mera naam|ನನ್ನ ಹೆಸರು)\s+([A-Za-z\u0900-\u097F\u0C80-\u0CFF ]{2,60})', req.message, re.IGNORECASE)
+
             await db.table("leads").insert({
                 "bot_id": bot_id,
                 "conversation_id": conversation_id,
+                "name": name_match.group(1).strip() if name_match else None,
                 "phone": phone_num,
+                "email": email_match.group(0) if email_match else None,
                 "channel": req.channel,
                 "context": context_list
             }).execute()
@@ -158,7 +162,7 @@ async def send_chat_message(bot_slug: str, req: ChatRequest, db=Depends(get_db),
                         notification_type="new_lead",
                         data={
                             "bot_name": bot_name,
-                            "name": "Anonymous",  # Wait for NLP name extraction
+                            "name": name_match.group(1).strip() if name_match else "Anonymous",
                             "phone": phone_num,
                             "last_user_message": req.message[:100]
                         },
@@ -227,10 +231,16 @@ async def send_chat_message(bot_slug: str, req: ChatRequest, db=Depends(get_db),
         "last_active_at": now_str
     }).eq("id", conversation_id).execute()
     
-    # Actually increment the user's monthly limits mathematically!
-    await db.table("profiles").update({
-        "monthly_message_count": current_msg_count + 1
-    }).eq("id", owner_id).execute()
+    # Actually increment the user's monthly limits. Prefer atomic RPC when deployed.
+    try:
+        await db.rpc("increment_profile_message_count", {
+            "p_owner_id": owner_id,
+            "p_increment": 1
+        }).execute()
+    except Exception:
+        await db.table("profiles").update({
+            "monthly_message_count": current_msg_count + 1
+        }).eq("id", owner_id).execute()
 
     # Insert Analytics Events
     # Usually "message_sent" (user) and "message_received" (bot)
@@ -244,9 +254,10 @@ async def send_chat_message(bot_slug: str, req: ChatRequest, db=Depends(get_db),
     if source and source.startswith("guardrail_"):
         events.append({
             "bot_id": bot_id, 
-            "event_type": "guardrail_triggered", 
+            "event_type": "message_received", 
             "session_id": req.session_id,
             "properties": {
+                "channel": req.channel,
                 "guardrail_type": source,
                 "question_preview": req.message[:50]
             }
@@ -291,20 +302,20 @@ async def get_bot_appearance(bot_slug: str, db=Depends(get_db)):
     """
     Public Endpoint fetching generic chat widget theme logic directly
     """
-    bot_res = await db.table("bots").select("id, owner_id, bot_appearance(*)").eq("slug", bot_slug).single().execute()
+    bot_res = await db.table("bots").select("id, name, owner_id, bot_appearance(*)").eq("slug", bot_slug).single().execute()
     if not bot_res.data:
          raise HTTPException(status_code=404, detail="Bot not found")
          
     bot_owner = bot_res.data.get("owner_id")
+    bot_name = bot_res.data.get("name", "AI Bot")
     show_watermark = True
     
     if bot_owner:
         try:
-            profile_res = await db.table("profiles").select("plans(name)").eq("id", bot_owner).single().execute()
+            profile_res = await db.table("profiles").select("plans(show_watermark)").eq("id", bot_owner).single().execute()
             if profile_res.data and profile_res.data.get("plans"):
-                plan_name = profile_res.data["plans"].get("name", "Free")
-                if plan_name and plan_name.lower() != "free":
-                    show_watermark = False
+                # Access boolean flag directly
+                show_watermark = profile_res.data["plans"].get("show_watermark", True)
         except Exception:
             pass
 
@@ -313,9 +324,12 @@ async def get_bot_appearance(bot_slug: str, db=Depends(get_db)):
          appearance = appearance[0] if appearance else {}
 
     return {
-        "theme_color": appearance.get("theme_color", "#25D366"),
-        "welcome_message": appearance.get("welcome_message", "Hi there! How can I help you today?"),
-        "placeholder_text": appearance.get("placeholder_text", "Type your message..."),
+        "theme_color": appearance.get("theme_color", "#6366f1"),
+        "welcome_message": appearance.get("welcome_message", "Hi! How can I help you?"),
+        "placeholder_text": appearance.get("placeholder_text", "Ask me anything..."),
+        "bot_avatar_url": appearance.get("bot_avatar_url"),
         "position": appearance.get("position", "bottom-right"),
+        "launcher_icon": appearance.get("launcher_icon", "chat"),
+        "bot_name": bot_name,
         "show_watermark": show_watermark
     }

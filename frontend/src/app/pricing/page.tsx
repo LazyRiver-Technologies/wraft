@@ -5,9 +5,15 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Check, X, ArrowLeft } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
+import { useStore } from "@/lib/store"
 
 export default function PricingPage() {
   const [isYearly, setIsYearly] = React.useState(false)
+  const user = useStore((state) => state.user)
+
+  const getCheckoutLink = (plan: string) => {
+    return user ? `/checkout?plan=${plan}&yearly=${isYearly}` : `/signup?plan=${plan}&yearly=${isYearly}`
+  }
 
   return (
     <div className="min-h-screen bg-bg-primary text-text-primary py-20 px-6">
@@ -36,7 +42,7 @@ export default function PricingPage() {
             <p className="text-text-secondary mb-6 text-base">
               50 messages · 1 bot · No card needed
             </p>
-            <Link href="/signup">
+            <Link href={getCheckoutLink("starter")}>
               <Button size="lg" className="w-full sm:w-auto px-10 h-12 text-base font-semibold">
                 Start free trial
               </Button>
@@ -99,9 +105,9 @@ export default function PricingPage() {
             
             <div className="mt-8 pt-4 border-t border-border-default">
               <p className="text-xs text-text-tertiary text-center mb-4">Additional messages at ₹1 each</p>
-              <Link href="/signup?plan=starter" className="block w-full">
+              <Link href={getCheckoutLink("starter")} className="block w-full">
                 <Button variant="outline" className="w-full h-12 bg-bg-primary hover:bg-bg-tertiary">
-                  Get Started
+                  {user ? "Upgrade to Starter" : "Get Started"}
                 </Button>
               </Link>
             </div>
@@ -149,9 +155,9 @@ export default function PricingPage() {
             
             <div className="mt-8 pt-4 border-t border-brand/20">
               <p className="text-xs text-text-tertiary text-center mb-4">Additional messages at ₹1 each</p>
-              <Link href="/signup?plan=growth" className="block w-full">
+              <Link href={getCheckoutLink("growth")} className="block w-full">
                 <Button className="w-full h-12 text-bg-primary">
-                  Get Started
+                  {user ? "Upgrade to Growth" : "Get Started"}
                 </Button>
               </Link>
             </div>

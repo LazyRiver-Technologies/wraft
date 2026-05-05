@@ -9,9 +9,38 @@ export interface Bot {
   bot_settings?: BotSettings
   bot_appearance?: BotAppearance
   whatsapp_configs?: WhatsAppConfig[]
-  chunk_count?: number
-  message_count?: number
-  lead_count?: number
+  notification_settings?: NotificationSettings[] | NotificationSettings
+  // remove these three — they don't exist on the bots table
+  // chunk_count, message_count, lead_count were wrong
+  conversations?: { count: number }[]
+  leads?: { count: number }[]
+  usage_logs?: {
+    message_count: number
+    web_count: number
+    whatsapp_count: number
+    year_month: number
+  }[]
+  // computed in useBots hook from usage_logs
+  this_month?: {
+    message_count: number
+    web_count: number
+    whatsapp_count: number
+  }
+}
+
+export interface NotificationSettings {
+  id?: string
+  bot_id?: string
+  owner_whatsapp?: string | null
+  notify_new_lead?: boolean
+  notify_fallback?: boolean
+  notify_negative_sentiment?: boolean
+  notify_escalation?: boolean
+  quiet_hours_start?: number | null
+  quiet_hours_end?: number | null
+  min_interval_minutes?: number | null
+  last_notified_at?: string | null
+  updated_at?: string
 }
 
 export interface BotSettings {
@@ -19,43 +48,49 @@ export interface BotSettings {
   model?: string
   temperature?: number
   max_chunks?: number
+  search_mode?: 'hybrid' | 'vector' | 'keyword'
   fallback_message?: string
-  owner_whatsapp?: string
-  notify_on_lead?: boolean
-  notify_on_fallback?: boolean
-  notify_on_escalation?: boolean
+  lead_capture_enabled?: boolean
+  lead_capture_trigger?: number
+  lead_capture_message?: string
   acronym_map?: Record<string, string>
   guardrails_enabled?: boolean
-  search_mode?: 'hybrid' | 'vector'
 }
 
 export interface BotAppearance {
   theme_color: string
   welcome_message: string
   placeholder_text: string
+  bot_avatar_url?: string | null
+  launcher_icon?: string
   position: 'bottom-left' | 'bottom-right'
 }
 
 export interface WhatsAppConfig {
   id: string
-  phone_number_id: string
-  business_account_id: string
-  access_token: string
+  phone_number_id: string | null
+  waba_id: string | null
+  access_token_enc?: string | null
   verified_number?: string
   verify_token?: string
-  is_active: boolean
+  is_connected: boolean
+  connected_at?: string | null
 }
 
 export interface Lead {
   id: string
   bot_id: string
+  conversation_id?: string | null
   name: string | null
   email: string | null
   phone: string | null
-  source: string
+  city?: string | null
+  channel: 'web' | 'whatsapp'
+  context?: any[]
   is_contacted: boolean
-  message_preview: string | null
+  notes?: string | null
   created_at: string
+  updated_at?: string
 }
 
 export interface DataSource {
@@ -63,10 +98,18 @@ export interface DataSource {
   bot_id: string
   name: string
   type: 'pdf' | 'url' | 'sitemap' | 'text'
-  status: 'processing' | 'ready' | 'failed'
+  status: 'pending' | 'processing' | 'ready' | 'failed'
   chunk_count: number
-  error?: string
+  error_msg?: string | null
+  storage_path?: string | null
+  source_url?: string | null
+  raw_text?: string | null
+  file_size_bytes?: number | null
+  checksum?: string | null
   auto_retrain: boolean
+  retrain_frequency?: 'daily' | 'weekly' | 'monthly' | null
+  deleted_at?: string | null
+  last_retrained_at?: string | null
   created_at: string
   updated_at: string
 }

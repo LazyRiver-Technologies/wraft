@@ -9,17 +9,17 @@ import { Input } from "@/components/ui/input"
 import { useBot } from "@/hooks/api/useBots"
 import { useSaveWhatsAppToken, useDisconnectWhatsApp } from "@/hooks/api/useWhatsApp"
 import { useToast } from "@/hooks/use-toast"
-import { useUsage } from "@/hooks/api/useUsage"
 import { FeatureGate } from "@/components/ui/FeatureGate"
+import { useProfileWithPlan } from "@/hooks/api/useBilling"
 
 export default function BotWhatsAppPage(props: { params: any }) {
   const params = React.use(props.params as Promise<{ botId: string }>)
   const { toast } = useToast()
   const [showToken, setShowToken] = React.useState(false)
   const { data: bot, isLoading: botLoading } = useBot(params.botId)
-  const { data: usage, isLoading: usageLoading } = useUsage()
+  const { data: profile, isLoading: profileLoading } = useProfileWithPlan()
   
-  const isTrial = usage?.plan_name === "trial"
+  const hasWaNotifications = profile?.plans?.wa_notifications === true
   
   const [phoneNumberId, setPhoneNumberId] = React.useState("")
   const [wabaId, setWabaId] = React.useState("")
@@ -30,8 +30,31 @@ export default function BotWhatsAppPage(props: { params: any }) {
 
   // Dynamic State derived from bot
   const whatsappConfig = Array.isArray(bot?.whatsapp_configs) && bot!.whatsapp_configs.length > 0 ? bot!.whatsapp_configs[0] : null
-  const isConnected = !!whatsappConfig
+  const isConnected = whatsappConfig?.is_connected === true
+  
+  React.useEffect(() => {
+    if (whatsappConfig && !isConnected) {
+      if (whatsappConfig.phone_number_id && !phoneNumberId) setPhoneNumberId(whatsappConfig.phone_number_id)
+      if (whatsappConfig.waba_id && !wabaId) setWabaId(whatsappConfig.waba_id)
+    }
+  }, [whatsappConfig, isConnected])
+
   const activeStep: number = isConnected ? 4 : (phoneNumberId && wabaId ? 3 : 2)
+
+  const formatRelativeTime = (dateStr: string) => {
+    if (!dateStr) return "";
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) return "just now";
+    const diffInMinutes = Math.floor(diffInSeconds / 60);
+    if (diffInMinutes < 60) return `${diffInMinutes} minute${diffInMinutes !== 1 ? 's' : ''} ago`;
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `${diffInHours} hour${diffInHours !== 1 ? 's' : ''} ago`;
+    const diffInDays = Math.floor(diffInHours / 24);
+    return `${diffInDays} day${diffInDays !== 1 ? 's' : ''} ago`;
+  }
 
   const handleConnect = () => {
     if (!phoneNumberId || !wabaId || !accessToken) {
@@ -58,7 +81,7 @@ export default function BotWhatsAppPage(props: { params: any }) {
     })
   }
 
-  if (botLoading || usageLoading) return <div className="animate-pulse h-64 bg-bg-secondary w-full rounded-xl" />
+  if (botLoading || profileLoading) return <div className="animate-pulse h-64 bg-bg-secondary w-full rounded-xl" />
 
   if (isConnected) {
     return (
@@ -77,6 +100,9 @@ export default function BotWhatsAppPage(props: { params: any }) {
                 WhatsApp Connected <CheckCircle2 className="h-4 w-4 text-success" />
               </h3>
               <p className="text-text-secondary text-sm mt-1">Bound Phone ID: <span className="font-mono text-text-primary">{whatsappConfig?.phone_number_id || "N/A"}</span></p>
+              {whatsappConfig?.connected_at && (
+                <p className="text-text-tertiary text-xs mt-1">Connected {formatRelativeTime(whatsappConfig.connected_at)}</p>
+              )}
             </div>
           </div>
           <div className="flex flex-col items-end gap-3">
@@ -102,7 +128,7 @@ export default function BotWhatsAppPage(props: { params: any }) {
         title="WhatsApp Integration" 
         description="Connect your bot to WhatsApp via the Meta Cloud API."
       />
-      <FeatureGate hasAccess={!isTrial} requiredPlan="Starter">
+      <FeatureGate hasAccess={hasWaNotifications} requiredPlan="Starter">
 
       <div className="max-w-3xl relative">
         {/* Continuous Line */}
@@ -131,15 +157,25 @@ export default function BotWhatsAppPage(props: { params: any }) {
               <div className="grid gap-1.5">
                 <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">Callback URL</label>
                 <div className="flex gap-2">
-                  <Input defaultValue={`https://api.lazyriver.com/v1/webhook/whatsapp/${bot?.slug || params.botId}`} readOnly className="font-mono text-sm bg-bg-tertiary text-text-primary" />
-                  <Button variant="secondary" size="icon" className="shrink-0"><Copy className="h-4 w-4 text-text-secondary" /></Button>
+                  <Input value={`https://api.wraft.in/api/v1/webhook/whatsapp/${bot?.slug || params.botId}`} readOnly className="font-mono text-sm bg-bg-tertiary text-text-primary" />
+                  <Button variant="secondary" size="icon" className="shrink-0" onClick={() => {
+                    navigator.clipboard.writeText(`https://api.wraft.in/api/v1/webhook/whatsapp/${bot?.slug || params.botId}`)
+                    toast({ title: "Copied", description: "Webhook URL copied." })
+                  }}>
+                    <Copy className="h-4 w-4 text-text-secondary" />
+                  </Button>
                 </div>
               </div>
               <div className="grid gap-1.5">
                 <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">Verify Token</label>
                 <div className="flex gap-2">
-                  <Input defaultValue="lr_ws_verified_token_v1" readOnly className="font-mono text-sm bg-bg-tertiary text-text-primary" />
-                  <Button variant="secondary" size="icon" className="shrink-0"><Copy className="h-4 w-4 text-text-secondary" /></Button>
+                  <Input value={whatsappConfig?.verify_token || "Pending configuration..."} readOnly className="font-mono text-sm bg-bg-tertiary text-text-primary" />
+                  <Button variant="secondary" size="icon" className="shrink-0" onClick={() => {
+                    navigator.clipboard.writeText(whatsappConfig?.verify_token || "")
+                    toast({ title: "Copied", description: "Verify token copied." })
+                  }}>
+                    <Copy className="h-4 w-4 text-text-secondary" />
+                  </Button>
                 </div>
               </div>
             </div>
