@@ -10,15 +10,21 @@ export interface Bot {
   bot_appearance?: BotAppearance
   whatsapp_configs?: WhatsAppConfig[]
   notification_settings?: NotificationSettings[] | NotificationSettings
-  // remove these three — they don't exist on the bots table
-  // chunk_count, message_count, lead_count were wrong
+  chunk_count?: number
+  message_count?: number
+  lead_count?: number
   conversations?: { count: number }[]
   leads?: { count: number }[]
   usage_logs?: {
+    month_start: string
     message_count: number
-    web_count: number
+    total_tokens_in: number
+    total_tokens_out: number
+    total_cost_paise: number
+    cache_hits: number
     whatsapp_count: number
-    year_month: number
+    web_count: number
+    overage_count: number
   }[]
   // computed in useBots hook from usage_logs
   this_month?: {
@@ -29,13 +35,13 @@ export interface Bot {
 }
 
 export interface NotificationSettings {
-  id?: string
   bot_id?: string
   owner_whatsapp?: string | null
   notify_new_lead?: boolean
   notify_fallback?: boolean
   notify_negative_sentiment?: boolean
   notify_escalation?: boolean
+  timezone?: string
   quiet_hours_start?: number | null
   quiet_hours_end?: number | null
   min_interval_minutes?: number | null
@@ -45,7 +51,12 @@ export interface NotificationSettings {
 
 export interface BotSettings {
   system_prompt?: string
-  model?: string
+  generation_model?: string
+  generation_provider?: string
+  embedding_provider?: string
+  embedding_model?: string
+  embedding_dim?: number
+  fts_config?: string
   temperature?: number
   max_chunks?: number
   search_mode?: 'hybrid' | 'vector' | 'keyword'
@@ -55,23 +66,25 @@ export interface BotSettings {
   lead_capture_message?: string
   acronym_map?: Record<string, string>
   guardrails_enabled?: boolean
+  updated_at?: string
 }
 
 export interface BotAppearance {
+  bot_id?: string
   theme_color: string
   welcome_message: string
   placeholder_text: string
   bot_avatar_url?: string | null
   launcher_icon?: string
   position: 'bottom-left' | 'bottom-right'
+  updated_at?: string
 }
 
 export interface WhatsAppConfig {
   id: string
   phone_number_id: string | null
   waba_id: string | null
-  access_token_enc?: string | null
-  verified_number?: string
+  access_token_secret_id?: string | null
   verify_token?: string
   is_connected: boolean
   connected_at?: string | null
@@ -84,13 +97,16 @@ export interface Lead {
   name: string | null
   email: string | null
   phone: string | null
+  phone_normalized?: string | null
   city?: string | null
   channel: 'web' | 'whatsapp'
   context?: any[]
   is_contacted: boolean
+  contacted_at?: string | null
   notes?: string | null
   created_at: string
   updated_at?: string
+  deleted_at?: string | null
 }
 
 export interface DataSource {
@@ -122,6 +138,8 @@ export interface QAPair {
   is_active: boolean
   hit_count: number
   created_at: string
+  updated_at?: string
+  deleted_at?: string | null
 }
 
 export interface Suggestion {
@@ -131,5 +149,6 @@ export interface Suggestion {
   frequency: number
   sample_questions: string[]
   status: 'pending' | 'added_qa' | 'dismissed'
+  week_start?: string
   created_at: string
 }

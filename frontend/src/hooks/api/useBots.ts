@@ -5,8 +5,9 @@ import { Bot, BotSettings, BotAppearance, NotificationSettings } from "@/lib/typ
 import { createClient } from "@/utils/supabase/client"
 
 export function useBots() {
+  const user = useStore(state => state.user)
   return useQuery<Bot[]>({
-    queryKey: ["bots"],
+    queryKey: ["bots", user?.id],
     queryFn: async () => {
       const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()

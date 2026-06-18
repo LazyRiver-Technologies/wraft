@@ -23,71 +23,47 @@ async def get_cached_response(
     question: str,
     bot_id: str,
     question_embedding: list,
-    redis
+    embedding_dim: int,
+    db
 ) -> Optional[str]:
     """
     Check if a semantically similar question was already 
-    answered for this bot.
-    
-    Takes pre-computed embedding — no extra API call needed
-    since caller already embeds the question for RAG.
+    answered for this bot using Supabase pgvector.
     """
-    if redis is None:
+    if db is None:
         return None
     
     try:
-        # scan all cache keys for this bot
-        pattern = f"cache:{bot_id}:*"
-        keys = []
-        async for key in redis.scan_iter(pattern, count=100):
-            keys.append(key)
-        
-        if not keys:
-            return None
-        
-        # fetch all cached entries for this bot
-        pipe = redis.pipeline()
-        for key in keys:
-            pipe.get(key)
-        values = await pipe.execute()
-        
-        best_sim = 0.0
-        best_response = None
-        
-        for value in values:
-            if not value:
-                continue
-            try:
-                entry = json.loads(value)
-                cached_embedding = entry.get("embedding")
-                cached_response = entry.get("response")
-                
-                if not cached_embedding or not cached_response:
-                    continue
-                
-                sim = cosine_similarity(
-                    question_embedding, 
-                    cached_embedding
-                )
-                
-                if sim > best_sim:
-                    best_sim = sim
-                    best_response = cached_response
-                    
-            except (json.JSONDecodeError, Exception):
-                continue
-        
-        if best_sim >= CACHE_SIMILARITY_THRESHOLD:
+        # Fast RPC call to pgvector index
+        res = await db.rpc(
+            f"match_semantic_cache_{embedding_dim}",
+            {
+                "query_embedding": question_embedding,
+                "match_bot_id": bot_id,
+                "match_threshold": CACHE_SIMILARITY_THRESHOLD
+            }
+        ).execute()
+
+        if res.data and len(res.data) > 0:
+            best_match = res.data[0]
+            
+            # Increment hit count asynchronously
+            import asyncio
+            async def _update_hit_count():
+                try:
+                    await db.rpc("increment_cache_hit", {"cache_id": best_match["id"], "dim": embedding_dim}).execute()
+                except Exception as e:
+                    logger.warning(f"Failed to update cache hit count: {e}")
+            
+            asyncio.create_task(_update_hit_count())
+            
             logger.info(
                 f"Cache HIT bot={bot_id} "
-                f"similarity={best_sim:.3f}"
+                f"similarity={best_match['similarity']:.3f}"
             )
-            return best_response
+            return best_match["response"]
         
-        logger.info(
-            f"Cache MISS bot={bot_id} "
-            f"best_similarity={best_sim:.3f}"
-        )
+        logger.info(f"Cache MISS bot={bot_id}")
         return None
         
     except Exception as e:
@@ -96,41 +72,39 @@ async def get_cached_response(
 
 async def store_cached_response(
     bot_id: str,
+    question: str,
     question_embedding: list,
     response: str,
-    redis
+    embedding_dim: int,
+    db
 ) -> None:
     """
-    Store a question embedding + response in Redis.
-    TTL: 1 hour.
+    Store a question embedding + response in Supabase.
     """
-    if redis is None:
+    if db is None:
         return
     
     try:
-        key = f"cache:{bot_id}:{uuid.uuid4()}"
-        entry = json.dumps({
-            "embedding": question_embedding,
+        await db.table(f"semantic_cache_{embedding_dim}").insert({
+            "bot_id": bot_id,
+            "question": question,
             "response": response,
-            "created_at": int(time.time())
-        })
-        await redis.setex(key, CACHE_TTL_SECONDS, entry)
+            "embedding": question_embedding
+        }).execute()
         logger.info(f"Cache STORED bot={bot_id}")
         
     except Exception as e:
         logger.warning(f"Cache store failed: {e}")
 
-async def invalidate_bot_cache(bot_id: str, redis) -> None:
+async def invalidate_bot_cache(bot_id: str, embedding_dim: int, db) -> None:
     """
     Clear all cached responses for a bot.
     Call this when client updates data sources.
     """
-    if redis is None:
+    if db is None:
         return
     try:
-        pattern = f"cache:{bot_id}:*"
-        async for key in redis.scan_iter(pattern):
-            await redis.delete(key)
+        await db.table(f"semantic_cache_{embedding_dim}").delete().eq("bot_id", bot_id).execute()
         logger.info(f"Cache invalidated for bot={bot_id}")
     except Exception as e:
         logger.warning(f"Cache invalidation failed: {e}")

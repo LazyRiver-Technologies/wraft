@@ -15,6 +15,20 @@ export function useSaveWhatsAppToken() {
   })
 }
 
+export function useConnectWhatsAppOauth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ botId, data }: { botId: string, data: { oauth_code: string } }) =>
+      fetchApi(`/api/v1/bots/${botId}/whatsapp/oauth`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (_, { botId }) => {
+      queryClient.invalidateQueries({ queryKey: ["bot", botId] })
+    },
+  })
+}
+
 export function useDisconnectWhatsApp() {
   const queryClient = useQueryClient()
   return useMutation({

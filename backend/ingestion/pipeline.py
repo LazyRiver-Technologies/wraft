@@ -32,7 +32,12 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
         bot_id = source.get("bot_id")
         source_type = source.get("type")
         source_name = source.get("name")
-        
+        # 2.5 Fetch bot_settings to determine embedding dimension
+        bot_settings_res = await db.table("bot_settings").select("embedding_dim").eq("bot_id", bot_id).single().execute()
+        embedding_dim = 768
+        if bot_settings_res.data and bot_settings_res.data.get("embedding_dim"):
+            embedding_dim = bot_settings_res.data["embedding_dim"]
+            
         # 3. Call extractor based on source type
         extracted_content = [] # list of (url_or_name, raw_text, checksum)
         
@@ -131,7 +136,7 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
             raise ValueError(f"Mismatch between number of chunks ({len(all_chunks)}) and embeddings ({len(embeddings)})")
 
         # 7. Delete any existing document_chunks rows for this source_id
-        await db.table("document_chunks").delete().eq("source_id", source_id).execute()
+        await db.table(f"document_chunks_{embedding_dim}").delete().eq("source_id", source_id).execute()
 
         # 8. Batch insert all chunks
         chunk_rows = []
@@ -149,7 +154,7 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
         # Supabase API typically limits batch inserts to 1000 rows. We'll batch them safely.
         batch_size = 500
         for i in range(0, len(chunk_rows), batch_size):
-            await db.table("document_chunks").insert(chunk_rows[i:i+batch_size]).execute()
+            await db.table(f"document_chunks_{embedding_dim}").insert(chunk_rows[i:i+batch_size]).execute()
 
         # 9. Update data_source
         now_str = datetime.now(timezone.utc).isoformat()
@@ -162,7 +167,7 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
         }).eq("id", source_id).execute()
 
         # INVALIDATE semantic cache safely to map data overrides
-        await invalidate_bot_cache(bot_id, redis_client)
+        await invalidate_bot_cache(bot_id, embedding_dim, db)
 
     except Exception as e:
         logger.error(f"Ingestion pipeline failed for source {source_id}: {str(e)}", exc_info=True)

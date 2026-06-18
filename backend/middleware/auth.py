@@ -20,8 +20,8 @@ async def get_current_user(authorization: str = Header(None), db=Depends(get_db)
         raise HTTPException(status_code=401, detail="Invalid token")
         
     # Check if the user is banned
-    profile_resp = await db.table("profiles").select("is_banned").eq("id", user_resp.user.id).single().execute()
-    if profile_resp.data and profile_resp.data.get("is_banned"):
+    profile_resp = await db.table("profiles").select("is_banned").eq("id", user_resp.user.id).limit(1).execute()
+    if profile_resp.data and profile_resp.data[0].get("is_banned"):
         raise HTTPException(status_code=403, detail="Account suspended")
         
     return user_resp.user
@@ -33,8 +33,8 @@ async def get_admin_user(authorization: str = Header(None), db=Depends(get_db)):
     """
     user = await get_current_user(authorization, db)
     
-    profile_resp = await db.table("profiles").select("is_admin").eq("id", user.id).single().execute()
-    if not profile_resp.data or not profile_resp.data.get("is_admin"):
+    profile_resp = await db.table("profiles").select("is_admin").eq("id", user.id).limit(1).execute()
+    if not profile_resp.data or not profile_resp.data[0].get("is_admin"):
         raise HTTPException(status_code=403, detail="Forbidden: Admin access required")
         
     return user

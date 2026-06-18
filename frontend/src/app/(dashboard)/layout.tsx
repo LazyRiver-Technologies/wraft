@@ -10,6 +10,7 @@ import { CheckCircle2, Zap } from "lucide-react"
 import { useStore } from "@/lib/store"
 import { createClient } from "@/utils/supabase/client"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 
 export default function DashboardLayout({
   children,
@@ -19,6 +20,7 @@ export default function DashboardLayout({
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const { data: usage, isLoading } = useUsage()
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const isTrial = usage?.plan_name === "trial"
   const daysRemaining = usage?.trial_days_remaining ?? 0
@@ -29,6 +31,9 @@ export default function DashboardLayout({
   const handleSignOut = async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
+    queryClient.clear()
+    useStore.getState().setUser(null, null)
+    useStore.getState().setCurrentBot(null)
     router.push("/login")
   }
 

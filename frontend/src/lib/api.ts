@@ -11,7 +11,8 @@ export class ApiError extends Error {
   }
 }
 
-export async function fetchApi(endpoint: string, options: RequestInit = {}) {
+export async function fetchApi(endpoint: string, options: RequestInit & { timeout?: number } = {}) {
+  const { timeout = 15000, ...fetchOptions } = options;
   const token = useStore.getState().token
   
   const headers = new Headers(options.headers)
@@ -23,16 +24,35 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  })
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
 
-  if (!response.ok) {
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...fetchOptions,
+      headers,
+      signal: controller.signal
+    })
+    
+    clearTimeout(id);
+
+    if (!response.ok) {
     let message = 'API Error'
     try {
       const err = await response.json()
-      message = err.detail || message
+      if (err.detail) {
+        if (typeof err.detail === 'string') {
+          message = err.detail
+        } else if (Array.isArray(err.detail)) {
+          message = err.detail.map((e: any) => `${e.loc?.slice(-1) || 'Field'}: ${e.msg}`).join(', ')
+        } else if (typeof err.detail === 'object' && err.detail.message) {
+          message = err.detail.message
+        } else {
+          message = JSON.stringify(err.detail)
+        }
+      } else if (err.message) {
+        message = err.message
+      }
     } catch {}
     
     // Global 402 handling for plan/trial expiration
@@ -47,4 +67,11 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
 
   if (response.status === 204) return null
   return response.json()
+  } catch (err: any) {
+    clearTimeout(id);
+    if (err.name === 'AbortError') {
+      throw new ApiError('Request timed out. Please try again.', 408);
+    }
+    throw err;
+  }
 }

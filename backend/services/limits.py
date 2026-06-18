@@ -8,11 +8,44 @@ logger = logging.getLogger(__name__)
 async def get_profile_with_plan(owner_id: str, db):
     try:
         result = await db.table("profiles")\
-            .select("*, plans!inner(*)")\
+            .select("*, plans(*, plan_features(*))")\
             .eq("id", owner_id)\
-            .single()\
+            .limit(1)\
             .execute()
-        profile = result.data
+        
+        if not result.data:
+            raise HTTPException(status_code=403, detail="Profile not found.")
+            
+        profile = result.data[0]
+        
+        # Mathematical fallback if plan is missing
+        if not profile.get("plans"):
+            plan_res = await db.table("plans").select("*, plan_features(*)").in_("name", ["free", "trial"]).limit(1).execute()
+            if plan_res.data:
+                plan_data = plan_res.data[0]
+                if plan_data.get("plan_features"):
+                    for f in plan_data["plan_features"]:
+                        plan_data[f["feature_key"]] = f["feature_value"]
+                    del plan_data["plan_features"]
+                profile["plans"] = plan_data
+            else:
+                profile["plans"] = {
+                    "name": "trial",
+                    "max_bots": 1,
+                    "max_chunks_per_bot": 50,
+                    "max_messages_per_month": 50,
+                    "max_data_sources_per_bot": 2,
+                    "price_inr": 0,
+                    "overage_price_paise": 0,
+                    "max_actions": 0,
+                    "max_qa_pairs": 5
+                }
+                
+        if profile.get("plans") and profile["plans"].get("plan_features"):
+            for f in profile["plans"]["plan_features"]:
+                profile["plans"][f["feature_key"]] = f["feature_value"]
+            del profile["plans"]["plan_features"]
+
         if profile:
             today = date.today()
             cycle_start_raw = profile.get("billing_cycle_start")
@@ -22,8 +55,7 @@ async def get_profile_with_plan(owner_id: str, db):
                     if cycle_start.year != today.year or cycle_start.month != today.month:
                         await db.table("profiles").update({
                             "monthly_message_count": 0,
-                            "billing_cycle_start": today.isoformat(),
-                            "overage_messages": 0
+                            "billing_cycle_start": today.isoformat()
                         }).eq("id", owner_id).execute()
                         profile["monthly_message_count"] = 0
                         profile["billing_cycle_start"] = today.isoformat()
@@ -163,7 +195,13 @@ async def check_qa_limit(
     if max_qa is None:
         return
     
-    current_count = await db.table("qa_pairs")\
+    # Fetch embedding_dim safely
+    bot_settings_res = await db.table("bot_settings").select("embedding_dim").eq("bot_id", bot_id).limit(1).execute()
+    embedding_dim = 768
+    if bot_settings_res.data and len(bot_settings_res.data) > 0 and bot_settings_res.data[0].get("embedding_dim"):
+        embedding_dim = bot_settings_res.data[0]["embedding_dim"]
+
+    current_count = await db.table(f"qa_pairs_{embedding_dim}")\
         .select("id", count="exact")\
         .eq("bot_id", bot_id)\
         .eq("is_active", True)\
@@ -303,13 +341,13 @@ async def check_feature_flag(
             if cached:
                 flag_data = json.loads(cached)
             else:
-                res = await db.table("feature_flags").select("*").eq("flag_name", flag_name).single().execute()
-                flag_data = res.data if res.data else None
+                res = await db.table("feature_flags").select("*").eq("flag_name", flag_name).limit(1).execute()
+                flag_data = res.data[0] if res.data else None
                 if flag_data:
                     await redis.setex(cache_key, 60, json.dumps(flag_data))
         else:
-            res = await db.table("feature_flags").select("*").eq("flag_name", flag_name).single().execute()
-            flag_data = res.data if res.data else None
+            res = await db.table("feature_flags").select("*").eq("flag_name", flag_name).limit(1).execute()
+            flag_data = res.data[0] if res.data else None
     except Exception:
         flag_data = None
 

@@ -35,7 +35,7 @@ async def create_subscription(
     if not plan_name:
         raise HTTPException(status_code=400, detail="Must provide plan_name")
         
-    plan_res = await db.table("plans").select("*").eq("name", plan_name.lower()).single().execute()
+    plan_res = await db.table("plans").select("*").eq("name", plan_name.lower()).limit(1).execute()
     if not plan_res.data:
         raise HTTPException(status_code=404, detail="Plan not found")
         
@@ -55,8 +55,8 @@ async def create_subscription(
         raise HTTPException(status_code=400, detail="Plan does not have a mapped Razorpay Plan ID")
 
     try:
-        profile_res = await db.table("profiles").select("email, razorpay_customer_id").eq("id", user.id).single().execute()
-        profile = profile_res.data or {}
+        profile_res = await db.table("profiles").select("email, razorpay_customer_id").eq("id", user.id).limit(1).execute()
+        profile = profile_res.data[0] if profile_res.data else {}
         sub_payload = {
             "plan_id": rz_plan_id,
             "total_count": 12, # Defaulting 1 year recursion dynamically
@@ -82,16 +82,17 @@ async def create_subscription(
 async def _get_plan_by_razorpay_id(db, rz_plan_id: str | None):
     if not rz_plan_id:
         return None
-    plan_res = await db.table("plans").select("*").eq("razorpay_plan_id", rz_plan_id).execute()
+    plan_res = await db.table("plans").select("*").eq("razorpay_plan_id", rz_plan_id).limit(1).execute()
     return plan_res.data[0] if plan_res.data else None
 
 async def _get_trial_plan(db):
-    res = await db.table("plans").select("*").eq("name", "trial").single().execute()
-    return res.data if res.data else None
+    res = await db.table("plans").select("*").eq("name", "trial").limit(1).execute()
+    if not res.data: raise HTTPException(status_code=404, detail='Not found')
+    return res.data[0] if res.data else None
 
 async def _apply_plan_change(db, redis, user_id: str, new_plan: dict, reason: str, subscription_id: str | None = None):
-    profile_res = await db.table("profiles").select("plan_id, email").eq("id", user_id).single().execute()
-    profile = profile_res.data or {}
+    profile_res = await db.table("profiles").select("plan_id, email").eq("id", user_id).limit(1).execute()
+    profile = profile_res.data[0] if profile_res.data else {}
     old_plan_id = profile.get("plan_id")
     update_payload = {
         "plan_id": new_plan["id"],

@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from typing import Optional, Literal
+from pydantic import Field
 
 class Settings(BaseSettings):
     SUPABASE_URL: str
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_PASSWORD: Optional[str] = None
+    META_APP_ID: Optional[str] = None
     META_VERIFY_TOKEN: str
     META_APP_SECRET: str
     PLATFORM_WA_PHONE_NUMBER_ID: Optional[str] = None
@@ -19,7 +21,7 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: Optional[str] = None
     RAZORPAY_KEY_SECRET: Optional[str] = None
     RAZORPAY_WEBHOOK_SECRET: Optional[str] = None
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: Literal["development", "production", "test"] = "development"
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -33,4 +35,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-settings = Settings()  # type: ignore
+try:
+    settings = Settings()
+except Exception as e:
+    import sys
+    print(f"CRITICAL: Environment validation failed. Are you missing variables in your .env?\n{e}")
+    sys.exit(1)

@@ -1,14 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from database import get_db
 from middleware.auth import get_current_user
 from services.limits import get_profile_with_plan
 from datetime import datetime, timezone
 import math
+from fastapi_cache.decorator import cache
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
+def usage_key_builder(func, namespace: str = "", request: Request = None, response=None, *args, **kwargs):
+    user = kwargs.get("user")
+    user_id = user.id if user else "anonymous"
+    return f"{namespace}:{func.__module__}:{func.__name__}:{user_id}"
+
 @router.get("/me")
-async def get_my_usage(user=Depends(get_current_user), db=Depends(get_db)):
+@cache(expire=60, key_builder=usage_key_builder)
+async def get_my_usage(request: Request, user=Depends(get_current_user), db=Depends(get_db)):
     profile = await get_profile_with_plan(user.id, db)
     plan = profile["plans"]
     
@@ -22,14 +29,18 @@ async def get_my_usage(user=Depends(get_current_user), db=Depends(get_db)):
     days_in_cycle = 30
     trial_days_remaining = 0
     
-    if plan_name == "trial" and profile.get("trial_started_at"):
+    if plan_name == "trial":
         trial_days = 30 + profile.get("trial_extended_days", 0)
-        trial_start = datetime.fromisoformat(
-            profile["trial_started_at"].replace("Z", "+00:00")
-        )
-        now = datetime.now(timezone.utc)
-        days_elapsed = (now - trial_start).days
-        trial_days_remaining = max(0, trial_days - days_elapsed)
+        if profile.get("trial_started_at"):
+            trial_start = datetime.fromisoformat(
+                profile["trial_started_at"].replace("Z", "+00:00")
+            )
+            now = datetime.now(timezone.utc)
+            days_elapsed = (now - trial_start).days
+            trial_days_remaining = max(0, trial_days - days_elapsed)
+        else:
+            trial_days_remaining = trial_days
+            
         if profile.get("trial_expired"):
             trial_days_remaining = 0
 

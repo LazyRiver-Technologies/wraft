@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
 from fastapi.responses import StreamingResponse
+from postgrest.exceptions import APIError
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone, timedelta
@@ -125,7 +126,10 @@ class PlanUpdateReq(BaseModel):
 
 @router.patch("/users/{user_id}/plan")
 async def update_user_plan(user_id: str, req: PlanUpdateReq, admin=Depends(require_admin), db=Depends(get_db), redis=Depends(get_redis)):
-    plan_res = await db.table("plans").select("id").eq("name", req.plan_name).single().execute()
+    try:
+        plan_res = await db.table("plans").select("id").eq("name", req.plan_name).single().execute()
+    except APIError:
+        raise HTTPException(status_code=400, detail="Invalid plan")
     if not plan_res.data:
         raise HTTPException(status_code=400, detail="Invalid plan")
         
@@ -144,7 +148,10 @@ class ExtendTrialReq(BaseModel):
 
 @router.patch("/users/{user_id}/extend-trial")
 async def extend_trial(user_id: str, req: ExtendTrialReq, admin=Depends(require_admin), db=Depends(get_db), redis=Depends(get_redis)):
-    p_res = await db.table("profiles").select("trial_extended_days").eq("id", user_id).single().execute()
+    try:
+        p_res = await db.table("profiles").select("trial_extended_days").eq("id", user_id).single().execute()
+    except APIError:
+        raise HTTPException(status_code=404, detail="User not found")
     if not p_res.data:
         raise HTTPException(status_code=404, detail="User not found")
         
@@ -199,13 +206,22 @@ async def impersonate_user(user_id: str, reason: str = Query(...), admin=Depends
     return {"token": "impersonation_token_here", "expires_at": (datetime.now() + timedelta(minutes=30)).isoformat()}
 
 @router.get("/bots")
-async def list_bots(admin=Depends(require_admin), db=Depends(get_db)):
-    return await get_bot_health_table(db)
+async def list_bots(
+    search: Optional[str] = None,
+    health: Optional[str] = "all",
+    whatsapp_status: Optional[str] = "all",
+    admin=Depends(require_admin), 
+    db=Depends(get_db)
+):
+    return await get_bot_health_table(db, search, health, whatsapp_status)
 
 @router.get("/bots/{bot_id}")
 async def get_bot_details(bot_id: str, admin=Depends(require_admin), db=Depends(get_db)):
-    res = await db.table("bots").select("*, data_sources(*), whatsapp_configs(*)").eq("id", bot_id).single().execute()
-    return res.data
+    try:
+        res = await db.table("bots").select("*, data_sources(*), whatsapp_configs(*)").eq("id", bot_id).single().execute()
+        return res.data
+    except APIError:
+        raise HTTPException(status_code=404, detail="Bot not found")
 
 @router.patch("/bots/{bot_id}/reindex")
 async def reindex_bot(bot_id: str, admin=Depends(require_admin), db=Depends(get_db), redis=Depends(get_redis)):
@@ -235,9 +251,54 @@ async def guardrail_stats(admin=Depends(require_admin), db=Depends(get_db)):
     return await get_guardrail_stats(db)
 
 @router.get("/audit-logs")
-async def audit_logs(page: int = 1, admin=Depends(require_admin), db=Depends(get_db)):
-    res = await db.table("admin_audit_log").select("*").order("performed_at", desc=True).range((page-1)*20, page*20-1).execute()
-    return res.data
+async def audit_logs(
+    search: Optional[str] = None,
+    type: Optional[str] = "all",
+    days: Optional[str] = "90d",
+    page: int = 1, 
+    admin=Depends(require_admin), 
+    db=Depends(get_db)
+):
+    from datetime import datetime, timezone, timedelta
+    
+    query = db.table("admin_audit_log").select("*")
+    
+    if search:
+        query = query.ilike("target_id", f"%{search}%")
+        
+    if type and type != "all":
+        query = query.eq("action", type)
+        
+    now = datetime.now(timezone.utc)
+    if days:
+        try:
+            days_int = int(days.replace("d", ""))
+            cutoff = (now - timedelta(days=days_int)).isoformat()
+            query = query.gte("performed_at", cutoff)
+        except ValueError:
+            pass
+            
+    res = await query.order("performed_at", desc=True).range((page-1)*50, page*50-1).execute()
+    
+    logs = []
+    for r in (res.data or []):
+        pt = datetime.fromisoformat(r["performed_at"].replace('Z', '+00:00')) if r.get("performed_at") else now
+        diff = now - pt
+        if diff.days > 0:
+            rel = f"{diff.days}d ago"
+        else:
+            rel = f"{diff.seconds // 3600}h ago" if diff.seconds >= 3600 else f"{diff.seconds // 60}m ago"
+            
+        logs.append({
+            "id": r["id"],
+            "action_type": r["action"],
+            "target_id": r["target_id"],
+            "target_name": None, # Complex join not strictly necessary for fast audits, UI handles absence
+            "details": r["details"],
+            "created_at_relative": rel
+        })
+        
+    return logs
 
 @router.get("/feature-flags")
 async def list_feature_flags(admin=Depends(require_admin), db=Depends(get_db)):

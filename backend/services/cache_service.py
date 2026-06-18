@@ -78,7 +78,7 @@ async def get_admin_metrics_cached(db, redis) -> Dict[str, Any]:
             return json.loads(cached)
 
     from services.admin_stats import get_business_metrics
-    data = await get_business_metrics(db)
+    data = await get_business_metrics(db, redis)
     if redis is not None:
         await redis.setex(cache_key, 60, json.dumps(data))
     return data
@@ -91,18 +91,9 @@ async def get_revenue_stats_cached(db, redis) -> Dict[str, Any]:
         if cached:
             return json.loads(cached)
 
-    from services.admin_stats import get_mrr_history, get_plan_distribution, get_revenue_feed
-    # Combine the revenue-related lookups
-    mrr = await get_mrr_history(db, 90)
-    dist = await get_plan_distribution(db)
-    feed = await get_revenue_feed(db, 20)
+    from services.admin_stats import get_revenue_stats
+    data = await get_revenue_stats(db)
     
-    data = {
-        "mrr": sum(d['total_mrr'] for d in mrr[-1:]) if mrr else 0,
-        "mrr_history": mrr,
-        "plan_economics": dist,
-        "recent_payments": feed
-    }
     if redis is not None:
         await redis.setex(cache_key, 300, json.dumps(data))
     return data

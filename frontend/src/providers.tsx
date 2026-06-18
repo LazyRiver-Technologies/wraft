@@ -1,6 +1,9 @@
 "use client"
 
-import { QueryClient, QueryClientProvider, MutationCache, QueryCache } from '@tanstack/react-query'
+import { QueryClient, MutationCache, QueryCache } from '@tanstack/react-query'
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
+import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
+import { get, set, del } from 'idb-keyval'
 import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useStore } from '@/lib/store'
@@ -32,8 +35,37 @@ function getQueryClient() {
   }
 }
 
+// IndexedDB Persister Configuration
+const createIDBPersister = (idbValidKey: IDBValidKey = "reactQuery") => {
+  return {
+    getItem: async (key: string) => {
+      const val = await get(`${idbValidKey}-${key}`)
+      return val ? JSON.parse(val) : null
+    },
+    setItem: async (key: string, value: any) => {
+      await set(`${idbValidKey}-${key}`, JSON.stringify(value))
+    },
+    removeItem: async (key: string) => {
+      await del(`${idbValidKey}-${key}`)
+    },
+  }
+}
+
+let persister: ReturnType<typeof createAsyncStoragePersister> | undefined = undefined
+
+function getPersister() {
+  if (typeof window === 'undefined') return undefined
+  if (!persister) {
+    persister = createAsyncStoragePersister({
+      storage: createIDBPersister(),
+    })
+  }
+  return persister
+}
+
 export default function Providers({ children }: { children: React.ReactNode }) {
   const queryClient = getQueryClient()
+  const browserPersister = getPersister()
   const setUser = useStore(state => state.setUser)
 
   useEffect(() => {
@@ -56,10 +88,19 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   }, [setUser])
 
+  if (!browserPersister) {
+    return (
+      <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: undefined as any }}>
+        {children}
+        <Toaster />
+      </PersistQueryClientProvider>
+    )
+  }
+
   return (
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: browserPersister }}>
       {children}
       <Toaster />
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   )
 }
