@@ -13,6 +13,7 @@ from services.intelligence import init_topic_embeddings
 from crons import run_daily_jobs, run_weekly_jobs, recover_crashed_jobs
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
+from fastapi_limiter import FastAPILimiter
 
 from routers import auth, bots, sources, chat, webhook, analytics, billing, qa, leads, usage, admin, onboarding, profiles, setup
 
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI):
     await init_redis()
     redis_conn = await get_redis()
     FastAPICache.init(RedisBackend(redis_conn), prefix="fastapi-cache")
+    await FastAPILimiter.init(redis_conn)
     
     # Supabase auto-recovery hook + Pre-computation embeddings loader
     await init_topic_embeddings()
@@ -99,15 +101,27 @@ async def postgrest_api_error_handler(request: Request, exc: APIError):
         return JSONResponse(status_code=400, content={"detail": "Referenced record does not exist."})
     
     logger.error(f"Database APIError processing {request.method} {request.url}: {err_data}", exc_info=True)
+    
+    # Improve visibility of Cloudflare/Supabase upstream errors
+    error_msg = "A database error occurred."
+    if isinstance(err_data, dict):
+        if err_data.get("code") == 500 and "Worker threw exception" in str(err_data):
+            error_msg = "Upstream database provider is temporarily unavailable (Cloudflare Worker Error 1101)."
+        elif err_data.get("message"):
+            error_msg = f"A database error occurred: {err_data.get('message')}"
+            
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "A database error occurred."}
+        content={"detail": error_msg}
     )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled error processing {request.method} {request.url}: {exc}", exc_info=True)
+    error_msg = "An internal server error occurred. Our team has been notified."
+    if settings.ENVIRONMENT != "production":
+        error_msg = f"Internal Server Error: {str(exc)}"
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "An internal server error occurred. Our team has been notified."},
+        content={"detail": error_msg},
     )

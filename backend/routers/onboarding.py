@@ -161,9 +161,9 @@ async def setup_workspace(req: SetupRequest, background_tasks: BackgroundTasks, 
         formatted_sys_prompt = sys_prompt_template.format(name=req.business_name)
         await db.table("bot_settings").update({
             "system_prompt": formatted_sys_prompt,
-            "embedding_provider": "gemini",
-            "embedding_model": "gemini-embedding-001",
-            "embedding_dim": 768
+            "embedding_provider": "google",
+            "embedding_model": "text-embedding-004",
+            "embedding_dim": 768,
         }).eq("bot_id", bot_id).execute()
 
         # 7. Update notification_settings

@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS public.semantic_cache_768 (
     last_hit_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT semantic_cache_768_pkey PRIMARY KEY (id)
 );
+ALTER TABLE public.semantic_cache_768 ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable read access for all users" ON public.semantic_cache_768 FOR SELECT USING (true);
+CREATE POLICY "Enable insert for authenticated users only" ON public.semantic_cache_768 FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Enable update for authenticated users only" ON public.semantic_cache_768 FOR UPDATE USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
 CREATE INDEX IF NOT EXISTS semantic_cache_768_embedding_idx ON public.semantic_cache_768 USING hnsw (embedding vector_cosine_ops);
 
 CREATE OR REPLACE FUNCTION match_semantic_cache_768(
@@ -41,6 +46,11 @@ CREATE TABLE IF NOT EXISTS public.semantic_cache_1024 (
     last_hit_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT semantic_cache_1024_pkey PRIMARY KEY (id)
 );
+ALTER TABLE public.semantic_cache_1024 ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable read access for all users" ON public.semantic_cache_1024 FOR SELECT USING (true);
+CREATE POLICY "Enable insert for authenticated users only" ON public.semantic_cache_1024 FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Enable update for authenticated users only" ON public.semantic_cache_1024 FOR UPDATE USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
 CREATE INDEX IF NOT EXISTS semantic_cache_1024_embedding_idx ON public.semantic_cache_1024 USING hnsw (embedding vector_cosine_ops);
 
 CREATE OR REPLACE FUNCTION match_semantic_cache_1024(
@@ -70,6 +80,11 @@ CREATE TABLE IF NOT EXISTS public.semantic_cache_1536 (
     last_hit_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT semantic_cache_1536_pkey PRIMARY KEY (id)
 );
+ALTER TABLE public.semantic_cache_1536 ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable read access for all users" ON public.semantic_cache_1536 FOR SELECT USING (true);
+CREATE POLICY "Enable insert for authenticated users only" ON public.semantic_cache_1536 FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Enable update for authenticated users only" ON public.semantic_cache_1536 FOR UPDATE USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
 CREATE INDEX IF NOT EXISTS semantic_cache_1536_embedding_idx ON public.semantic_cache_1536 USING hnsw (embedding vector_cosine_ops);
 
 CREATE OR REPLACE FUNCTION match_semantic_cache_1536(
@@ -99,6 +114,11 @@ CREATE TABLE IF NOT EXISTS public.semantic_cache_3072 (
     last_hit_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT semantic_cache_3072_pkey PRIMARY KEY (id)
 );
+ALTER TABLE public.semantic_cache_3072 ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable read access for all users" ON public.semantic_cache_3072 FOR SELECT USING (true);
+CREATE POLICY "Enable insert for authenticated users only" ON public.semantic_cache_3072 FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Enable update for authenticated users only" ON public.semantic_cache_3072 FOR UPDATE USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
 -- pgvector restricts hnsw indexes to 2000 dimensions.
 -- Since this is a cache table, exact nearest-neighbor search (sequential scan)
 -- will still be extremely fast without an index.
@@ -114,5 +134,20 @@ BEGIN
     FROM public.semantic_cache_3072 sc
     WHERE sc.bot_id = match_bot_id AND 1 - (sc.embedding <=> query_embedding) > match_threshold
     ORDER BY sc.embedding <=> query_embedding LIMIT 1;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION increment_cache_hit(cache_id uuid, dim integer)
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    IF dim = 768 THEN
+        UPDATE public.semantic_cache_768 SET hit_count = hit_count + 1, last_hit_at = now() WHERE id = cache_id;
+    ELSIF dim = 1024 THEN
+        UPDATE public.semantic_cache_1024 SET hit_count = hit_count + 1, last_hit_at = now() WHERE id = cache_id;
+    ELSIF dim = 1536 THEN
+        UPDATE public.semantic_cache_1536 SET hit_count = hit_count + 1, last_hit_at = now() WHERE id = cache_id;
+    ELSIF dim = 3072 THEN
+        UPDATE public.semantic_cache_3072 SET hit_count = hit_count + 1, last_hit_at = now() WHERE id = cache_id;
+    END IF;
 END;
 $$;

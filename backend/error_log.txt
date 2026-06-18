@@ -37,3 +37,7 @@ DEBUG: Executing bot ownership check with bot_id=56f91f33-8589-42b6-8f5d-5e1434b
 DEBUG: Executing profiles update with user.id=25e6a502-81e9-4465-b224-31bc9f4c5510
 DEBUG: Executing playground_shares insert with bot_id=56f91f33-8589-42b6-8f5d-5e1434b6a6e3
 DEBUG: Executing notification_settings select with bot_id=56f91f33-8589-42b6-8f5d-5e1434b6a6e3
+DEBUG: Executing bot ownership check with bot_id=af1f9f8e-b02c-408a-982b-48947631c8ed, user.id=02ac3d27-25e1-4bf5-9226-117aa13da5f8
+DEBUG: Executing profiles update with user.id=02ac3d27-25e1-4bf5-9226-117aa13da5f8
+DEBUG: Executing playground_shares insert with bot_id=af1f9f8e-b02c-408a-982b-48947631c8ed
+DEBUG: Executing notification_settings select with bot_id=af1f9f8e-b02c-408a-982b-48947631c8ed

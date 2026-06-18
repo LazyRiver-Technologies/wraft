@@ -3,8 +3,9 @@ import { GeistMono } from 'geist/font/mono';
 import "./globals.css";
 
 export const metadata = {
-  title: "AI Chatbots App",
-  description: "RAG AI Platform",
+  title: "LazyRiver | Automate Your Customer Support",
+  description: "LazyRiver is an advanced AI platform that lets you train custom ChatGPT-like bots on your own knowledge base and deploy them to your website or WhatsApp in minutes.",
+  keywords: "AI, chatbot, customer support, RAG, custom AI, whatsapp bot, widget",
 };
 
 import Providers from "@/providers"

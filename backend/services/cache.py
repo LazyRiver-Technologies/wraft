@@ -49,12 +49,13 @@ async def get_cached_response(
             
             # Increment hit count asynchronously
             import asyncio
-            asyncio.create_task(
-                db.table(f"semantic_cache_{embedding_dim}")
-                .update({"hit_count": 1, "last_hit_at": "now()"})
-                .eq("id", best_match["id"])
-                .execute()
-            )
+            async def _update_hit_count():
+                try:
+                    await db.rpc("increment_cache_hit", {"cache_id": best_match["id"], "dim": embedding_dim}).execute()
+                except Exception as e:
+                    logger.warning(f"Failed to update cache hit count: {e}")
+            
+            asyncio.create_task(_update_hit_count())
             
             logger.info(
                 f"Cache HIT bot={bot_id} "

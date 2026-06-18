@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import Dict, Any
 
@@ -7,7 +7,8 @@ from redis_client import get_redis
 from repositories.chat_repository import ChatRepository
 from services.chat_service import ChatService
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from config import settings
+from fastapi_limiter.depends import RateLimiter
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ class ChatRequest(BaseModel):
     session_id: str
     channel: str = Field(default="web", pattern="^(web|whatsapp)$")
 
-@router.post("/{bot_slug}")
+@router.post("/{bot_slug}", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
 async def send_chat_message(bot_slug: str, req: ChatRequest, background_tasks: BackgroundTasks, db=Depends(get_db), redis=Depends(get_redis)):
     repo = ChatRepository(db)
     service = ChatService(repo, db, redis)
@@ -60,10 +61,3 @@ async def get_bot_appearance(bot_slug: str, db=Depends(get_db)):
         "bot_name": bot.get("name", "AI Bot"),
         "show_watermark": show_watermark
     }
-
-@router.get("/debug/latest-messages")
-async def get_latest_debug_messages(db=Depends(get_db)):
-    res = await db.table("bots").select("id").ilike("name", "%jhkzxcsdf%").execute()
-    bot_id = res.data[0]["id"]
-    msgs = await db.table("messages").select("content, role, metadata").eq("bot_id", bot_id).order("created_at", desc=True).limit(5).execute()
-    return msgs.data

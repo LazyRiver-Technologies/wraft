@@ -11,7 +11,8 @@ export class ApiError extends Error {
   }
 }
 
-export async function fetchApi(endpoint: string, options: RequestInit = {}) {
+export async function fetchApi(endpoint: string, options: RequestInit & { timeout?: number } = {}) {
+  const { timeout = 15000, ...fetchOptions } = options;
   const token = useStore.getState().token
   
   const headers = new Headers(options.headers)
@@ -23,12 +24,19 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  })
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
 
-  if (!response.ok) {
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...fetchOptions,
+      headers,
+      signal: controller.signal
+    })
+    
+    clearTimeout(id);
+
+    if (!response.ok) {
     let message = 'API Error'
     try {
       const err = await response.json()
@@ -59,4 +67,11 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
 
   if (response.status === 204) return null
   return response.json()
+  } catch (err: any) {
+    clearTimeout(id);
+    if (err.name === 'AbortError') {
+      throw new ApiError('Request timed out. Please try again.', 408);
+    }
+    throw err;
+  }
 }

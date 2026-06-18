@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { fetchApi } from "@/lib/api"
+import { useQueryClient } from "@tanstack/react-query"
 
 export interface ChatMessage {
   id: string | number
@@ -9,6 +10,7 @@ export interface ChatMessage {
 }
 
 export function useChat(botSlug?: string) {
+  const queryClient = useQueryClient()
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 1, 
     text: "Welcome to LazyRiver! How can I help you today?", 
@@ -41,10 +43,14 @@ export function useChat(botSlug?: string) {
         isBot: true,
         confidence: response.confidence || "high"
       }])
-    } catch (error: any) {
+
+      // Force dashboard analytics to update live
+      queryClient.invalidateQueries({ queryKey: ["analytics"] })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       setMessages(prev => [...prev, {
         id: Date.now(),
-        text: "Error communicating with the bot: " + error.message,
+        text: "Error communicating with the bot: " + errorMessage,
         isBot: true,
         confidence: "low"
       }])

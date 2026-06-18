@@ -20,10 +20,7 @@ export function useGlobalOverviewQuery(filter: AnalyticsFilter = {}) {
   return useQuery({
     queryKey: ["analytics", "global_overview", filter],
     queryFn: () => fetchApi(`/api/v1/analytics/overview${buildQueryString(filter)}`),
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+    staleTime: Infinity,
   })
 }
 
@@ -31,10 +28,7 @@ export function useGlobalTrendsQuery(filter: AnalyticsFilter = {}) {
   return useQuery({
     queryKey: ["analytics", "global_trends", filter],
     queryFn: () => fetchApi(`/api/v1/analytics/conversations-over-time${buildQueryString(filter)}`),
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+    staleTime: Infinity,
   })
 }
 
@@ -43,9 +37,7 @@ export function useOverviewQuery({ botId, ...filter }: AnalyticsFilter) {
     queryKey: ["analytics", "overview", botId, filter],
     queryFn: () => fetchApi(`/api/v1/analytics/${botId}/overview${buildQueryString(filter)}`),
     enabled: !!botId,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   })
 }
 
@@ -54,9 +46,7 @@ export function useTrendsQuery({ botId, ...filter }: AnalyticsFilter) {
     queryKey: ["analytics", "trends", botId, filter],
     queryFn: () => fetchApi(`/api/v1/analytics/${botId}/conversations-over-time${buildQueryString(filter)}`),
     enabled: !!botId,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   })
 }
 
@@ -65,9 +55,7 @@ export function useDropOffQuery({ botId, ...filter }: AnalyticsFilter) {
     queryKey: ["analytics", "dropoff", botId, filter],
     queryFn: () => fetchApi(`/api/v1/analytics/${botId}/drop-off${buildQueryString(filter)}`),
     enabled: !!botId,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   })
 }
 
@@ -76,9 +64,7 @@ export function useSentimentQuery({ botId, ...filter }: AnalyticsFilter) {
     queryKey: ["analytics", "sentiment", botId, filter],
     queryFn: () => fetchApi(`/api/v1/analytics/${botId}/sentiment${buildQueryString(filter)}`),
     enabled: !!botId,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   })
 }
 
@@ -87,9 +73,7 @@ export function useSourcesPerformanceQuery({ botId, ...filter }: AnalyticsFilter
     queryKey: ["analytics", "sources_performance", botId, filter],
     queryFn: () => fetchApi(`/api/v1/analytics/${botId}/sources-performance${buildQueryString(filter)}`),
     enabled: !!botId,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   })
 }
 
@@ -98,9 +82,7 @@ export function useTopicsQuery({ botId, ...filter }: AnalyticsFilter) {
     queryKey: ["analytics", "topics", botId, filter],
     queryFn: () => fetchApi(`/api/v1/analytics/${botId}/topics${buildQueryString(filter)}`),
     enabled: !!botId,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   })
 }
 
@@ -109,8 +91,6 @@ export function useSuggestionsQuery(botId?: string) {
     queryKey: ["analytics", "suggestions", botId],
     queryFn: () => fetchApi(`/api/v1/analytics/${botId}/suggestions`),
     enabled: !!botId,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   })
 }

@@ -102,12 +102,14 @@ async def is_off_topic(
         # Database might return 'similarity' (cosine) or 'score' (RRF hybrid search)
         # Hybrid search returns BOTH! We must check score first if it's > 0.
         score = chunk.get("score", 0.0)
+        RRF_K_CONSTANT = 60
+        RRF_THRESHOLD = 0.010 # Roughly rank > 40: 1/(60+40) = 0.01
+        COSINE_THRESHOLD = 0.35
+        
         if score > 0.0:
-            # RRF scores are typically 1/(60+rank), so rank 1 is ~0.016. Max is ~0.033.
-            # A score < 0.01 means it ranked worse than 40th.
-            return score < 0.010
+            return score < RRF_THRESHOLD
         elif "similarity" in chunk:
-            return chunk["similarity"] < 0.35
+            return chunk["similarity"] < COSINE_THRESHOLD
             
         return False # Fallback if unknown format
         
@@ -484,10 +486,10 @@ async def get_rag_response(
     # GUARDRAIL 4 — Low confidence / hallucination prevention
     if chunks:
         threshold = 0.015 if is_rrf else 0.45
-        with open("debug_log.txt", "a") as f:
+        with open("debug_log.txt", "a", encoding="utf-8") as f:
             f.write(f"GUARDRAIL 4: max_similarity={max_similarity}, threshold={threshold}, is_rrf={is_rrf}\n")
         if max_similarity < threshold:
-            with open("debug_log.txt", "a") as f:
+            with open("debug_log.txt", "a", encoding="utf-8") as f:
                 f.write("GUARDRAIL 4: TRIGGERED!\n")
             fallback = bot_settings.get("fallback_message", "I couldn't find any relevant information to answer your question.")
             return {
@@ -589,7 +591,7 @@ USER QUESTION:
                 max_tokens=1024,
             )
             answer_text = groq_response.choices[0].message.content or ""
-            with open("debug_log.txt", "a") as f: f.write(f"LLM Groq OUTPUT: {answer_text}\n")
+            with open("debug_log.txt", "a", encoding="utf-8") as f: f.write(f"LLM Groq OUTPUT: {answer_text}\n")
             tokens_used = groq_response.usage.total_tokens if groq_response.usage else 0
         else:
             try:
@@ -601,6 +603,9 @@ USER QUESTION:
 
                 if generation_provider != "google":
                     logger.warning(f"Provider {generation_provider} is not fully supported yet. Falling back to google.")
+                    generation_model = "gemini-2.5-flash-lite"
+                elif not generation_model.startswith("gemini"):
+                    generation_model = "gemini-2.5-flash-lite"
 
                 model_params = {
                     "model_name": generation_model,
@@ -662,7 +667,7 @@ USER QUESTION:
                             tokens_used += followup_response.usage_metadata.total_token_count
 
                 answer_text = response.text
-                with open("debug_log.txt", "a") as f: f.write(f"LLM Gemini OUTPUT: {answer_text}\n")
+                with open("debug_log.txt", "a", encoding="utf-8") as f: f.write(f"LLM Gemini OUTPUT: {answer_text}\n")
                 if tokens_used == 0:
                      tokens_used = len(question) // 4 + len(answer_text) // 4
     
@@ -690,7 +695,7 @@ USER QUESTION:
         import traceback
         tb = traceback.format_exc()
         logger.error(f"LLM API failure: {e}\n{tb}")
-        with open("debug_log.txt", "a") as f:
+        with open("debug_log.txt", "a", encoding="utf-8") as f:
             f.write(f"LLM EXCEPTION THROWN: {type(e).__name__}: {str(e)}\n{tb}\n")
         return {
             "response": bot_settings.get(

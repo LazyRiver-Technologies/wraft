@@ -4,13 +4,13 @@ supabase==2.7.0
 redis==5.0.8
 google-generativeai==0.8.0
 groq==0.11.0
-pymupdf
+pymupdf==1.24.10
 playwright==1.47.0
 beautifulsoup4==4.12.3
 httpx==0.27.0
 pydantic-settings==2.5.0
 python-multipart==0.0.9
-bullmq
+bullmq==1.25.0
 python-jose[cryptography]==3.3.0
 langchain-text-splitters==0.2.4
 tiktoken==0.7.0
@@ -19,3 +19,4 @@ cachetools==5.3.3
 PyJWT==2.8.0
 bcrypt==4.1.2
 fastapi-cache2[redis]==0.2.2
+fastapi-limiter==0.1.6

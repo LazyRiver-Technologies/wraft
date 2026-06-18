@@ -91,10 +91,13 @@ export default function BotSourcesPage(props: { params: any }) {
     
     if (activeModal === 'url' || activeModal === 'sitemap') {
       if (!urlInput.trim()) return toast({ title: "Error", description: "URL is required.", variant: "destructive" });
-      payload = { url: urlInput.trim() };
+      payload = { 
+        url: urlInput.trim(),
+        name: activeModal === 'url' ? 'Web URL' : 'Sitemap'
+      };
     } else if (activeModal === 'text') {
       if (!textName.trim() || !textContent.trim()) return toast({ title: "Error", description: "Name and content are required.", variant: "destructive" });
-      payload = { title: textName.trim(), content: textContent.trim() };
+      payload = { name: textName.trim(), content: textContent.trim() };
     } else if (activeModal === 'pdf') {
       if (!fileInput) return toast({ title: "Error", description: "A PDF file is required.", variant: "destructive" });
       payload = new FormData();

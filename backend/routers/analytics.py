@@ -32,7 +32,7 @@ def get_service(db) -> AnalyticsService:
     return AnalyticsService(repo)
 
 @router.get("/overview")
-@cache(expire=60, key_builder=analytics_key_builder)
+@cache(expire=5, key_builder=analytics_key_builder)
 async def get_global_overview(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -45,7 +45,7 @@ async def get_global_overview(
     return await get_service(db).get_overview(user.id, bot_ids, start_date, end_date, channel)
 
 @router.get("/conversations-over-time")
-@cache(expire=60, key_builder=analytics_key_builder)
+@cache(expire=5, key_builder=analytics_key_builder)
 async def get_global_conversations_over_time(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -58,7 +58,7 @@ async def get_global_conversations_over_time(
     return await get_service(db).get_conversations_over_time(bot_ids, start_date, end_date, channel)
 
 @router.get("/{bot_id}/overview")
-@cache(expire=60, key_builder=analytics_key_builder)
+@cache(expire=5, key_builder=analytics_key_builder)
 async def get_bot_overview(
     bot_id: str,
     start_date: Optional[str] = None,
@@ -71,7 +71,7 @@ async def get_bot_overview(
     return await get_service(db).get_overview(user.id, [bot_id], start_date, end_date, channel)
 
 @router.get("/{bot_id}/conversations-over-time")
-@cache(expire=60, key_builder=analytics_key_builder)
+@cache(expire=5, key_builder=analytics_key_builder)
 async def get_bot_conversations_over_time(
     bot_id: str,
     start_date: Optional[str] = None,
@@ -84,7 +84,7 @@ async def get_bot_conversations_over_time(
     return await get_service(db).get_conversations_over_time([bot_id], start_date, end_date, channel)
 
 @router.get("/{bot_id}/drop-off")
-@cache(expire=60, key_builder=analytics_key_builder)
+@cache(expire=5, key_builder=analytics_key_builder)
 async def get_drop_off(
     bot_id: str,
     start_date: Optional[str] = None,
@@ -98,7 +98,7 @@ async def get_drop_off(
     return await get_service(db).get_drop_off(bot_id, start_date, end_date, channel)
 
 @router.get("/{bot_id}/sentiment")
-@cache(expire=60, key_builder=analytics_key_builder)
+@cache(expire=5, key_builder=analytics_key_builder)
 async def get_sentiment(
     bot_id: str,
     start_date: Optional[str] = None,
@@ -112,7 +112,7 @@ async def get_sentiment(
     return await get_service(db).get_sentiment(bot_id, start_date, end_date, channel)
 
 @router.get("/{bot_id}/sources-performance")
-@cache(expire=60, key_builder=analytics_key_builder)
+@cache(expire=5, key_builder=analytics_key_builder)
 async def get_sources_performance(
     bot_id: str,
     start_date: Optional[str] = None,
