@@ -6,6 +6,7 @@ import json
 import re
 import secrets
 import random
+import asyncio
 from database import get_db
 from middleware.auth import get_current_user
 from redis_client import get_redis
@@ -91,7 +92,7 @@ Return ONLY valid JSON, no markdown, no explanation:
     try:
         genai.configure(api_key=settings.GEMINI_API_KEY)
         model = genai.GenerativeModel("gemini-2.5-flash-lite")
-        response = model.generate_content(prompt)
+        response = await asyncio.to_thread(model.generate_content, prompt)
         text = response.text.strip()
         # Clean up possible markdown wrappers
         if text.startswith("```json"):
@@ -117,13 +118,14 @@ Return ONLY valid JSON, no markdown, no explanation:
 @router.post("/setup")
 async def setup_workspace(req: SetupRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
     try:
-        # 1. Update profiles table
-        await db.table("profiles").update({
+        # 1. Upsert profiles table (in case auth trigger missed creating it)
+        await db.table("profiles").upsert({
+            "id": user.id,
             "full_name": req.owner_name,
             "phone": req.phone,
             "business_name": req.business_name,
             "business_type": req.business_type
-        }).eq("id", user.id).execute()
+        }).execute()
 
         # 2. Generate bot slug
         slug_base = re.sub(r'[^a-z0-9]+', '-', req.business_name.lower()).strip('-')[:30]
@@ -142,6 +144,7 @@ async def setup_workspace(req: SetupRequest, background_tasks: BackgroundTasks, 
             "name": f"{req.business_name} Assistant",
             "slug": slug
         }).execute()
+        if not bot_res.data: raise HTTPException(status_code=500, detail='Failed to fetch bot')
         new_bot = bot_res.data[0]
         bot_id = new_bot["id"]
 
@@ -153,11 +156,14 @@ async def setup_workspace(req: SetupRequest, background_tasks: BackgroundTasks, 
             "welcome_message": f"Hi! How can I help you with {req.business_name}?"
         }).eq("bot_id", bot_id).execute()
 
-        # 6. Update bot_settings system_prompt
+        # 6. Update bot_settings system_prompt and embedding model
         sys_prompt_template = SYSTEM_PROMPTS.get(req.business_type, SYSTEM_PROMPTS["other"])
         formatted_sys_prompt = sys_prompt_template.format(name=req.business_name)
         await db.table("bot_settings").update({
-            "system_prompt": formatted_sys_prompt
+            "system_prompt": formatted_sys_prompt,
+            "embedding_provider": "gemini",
+            "embedding_model": "gemini-embedding-001",
+            "embedding_dim": 768
         }).eq("bot_id", bot_id).execute()
 
         # 7. Update notification_settings
@@ -166,6 +172,15 @@ async def setup_workspace(req: SetupRequest, background_tasks: BackgroundTasks, 
         }).eq("bot_id", bot_id).execute()
 
         # 8. Create pre-filled Q&A pairs (unanswered)
+        # Fetch embedding_dim safely
+        bot_settings_res = await db.table("bot_settings").select("embedding_dim").eq("bot_id", bot_id).limit(1).execute()
+        embedding_dim = 768
+        if bot_settings_res.data and len(bot_settings_res.data) > 0 and bot_settings_res.data[0].get("embedding_dim"):
+            embedding_dim = bot_settings_res.data[0]["embedding_dim"]
+
+        if embedding_dim not in [768, 1024, 1536, 3072]:
+            raise HTTPException(status_code=400, detail=f"Invalid embedding dimension: {embedding_dim}")
+
         qa_inserts = []
         for q in req.suggested_questions:
             qa_inserts.append({
@@ -176,7 +191,7 @@ async def setup_workspace(req: SetupRequest, background_tasks: BackgroundTasks, 
             })
         
         if qa_inserts:
-            inserted_qa = await db.table("qa_pairs").insert(qa_inserts).execute()
+            inserted_qa = await db.table(f"qa_pairs_{embedding_dim}").insert(qa_inserts).execute()
             # Embed questions asynchronously
             async def embed_qa_pairs(qa_data):
                 try:
@@ -184,7 +199,7 @@ async def setup_workspace(req: SetupRequest, background_tasks: BackgroundTasks, 
                     embeddings = await embed_chunks(questions)
                     for idx, q_row in enumerate(qa_data):
                         if embeddings and embeddings[idx]:
-                            await db.table("qa_pairs").update({"embedding": embeddings[idx]}).eq("id", q_row["id"]).execute()
+                            await db.table(f"qa_pairs_{embedding_dim}").update({"embedding": embeddings[idx]}).eq("id", q_row["id"]).execute()
                 except Exception as e:
                      print(f"Failed to embed qa pairs: {e}")
             
@@ -211,7 +226,12 @@ async def setup_workspace(req: SetupRequest, background_tasks: BackgroundTasks, 
             "suggested_questions": req.suggested_questions
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        with open('error_log.txt', 'a') as ef:
+            ef.write(traceback.format_exc() + "\n")
+        if "23505" in str(e) or "duplicate key" in str(e).lower():
+            raise HTTPException(status_code=400, detail="A bot with this URL slug already exists. Please choose another.")
+        raise HTTPException(status_code=500, detail=f"An error occurred during setup: {str(e)}")
 
 @router.post("/train")
 async def train_bot(req: TrainRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
@@ -221,22 +241,32 @@ async def train_bot(req: TrainRequest, background_tasks: BackgroundTasks, user=D
         if not bot_res.data:
             return {"success": True}  # fail silently as requested
 
+        # Fetch embedding_dim safely
+        bot_settings_res = await db.table("bot_settings").select("embedding_dim").eq("bot_id", req.bot_id).limit(1).execute()
+        embedding_dim = 768
+        if bot_settings_res.data and len(bot_settings_res.data) > 0 and bot_settings_res.data[0].get("embedding_dim"):
+            embedding_dim = bot_settings_res.data[0]["embedding_dim"]
+
+        if embedding_dim not in [768, 1024, 1536, 3072]:
+            return {"success": False, "error": f"Invalid embedding dimension: {embedding_dim}"}
+
         # 2 & 3 & 4. Upsert QA Pair
-        existing_qa = await db.table("qa_pairs").select("id").eq("bot_id", req.bot_id).eq("question", req.question).execute()
+        existing_qa = await db.table(f"qa_pairs_{embedding_dim}").select("id").eq("bot_id", req.bot_id).eq("question", req.question).execute()
         qa_id = None
         if existing_qa.data:
             qa_id = existing_qa.data[0]["id"]
-            await db.table("qa_pairs").update({
+            await db.table(f"qa_pairs_{embedding_dim}").update({
                 "answer": req.answer,
                 "is_active": True
             }).eq("id", qa_id).execute()
         else:
-            inserted_qa = await db.table("qa_pairs").insert({
+            inserted_qa = await db.table(f"qa_pairs_{embedding_dim}").insert({
                 "bot_id": req.bot_id,
                 "question": req.question,
                 "answer": req.answer,
                 "is_active": True
             }).execute()
+            if not inserted_qa.data: raise HTTPException(status_code=500, detail='Failed to insert QA')
             qa_id = inserted_qa.data[0]["id"]
 
         # 5. Embed the question
@@ -244,7 +274,7 @@ async def train_bot(req: TrainRequest, background_tasks: BackgroundTasks, user=D
              try:
                  embeddings = await embed_chunks([req.question])
                  if embeddings and embeddings[0]:
-                      await db.table("qa_pairs").update({"embedding": embeddings[0]}).eq("id", qa_id).execute()
+                      await db.table(f"qa_pairs_{embedding_dim}").update({"embedding": embeddings[0]}).eq("id", qa_id).execute()
              except Exception:
                  pass
         background_tasks.add_task(embed_single_qa)
@@ -271,31 +301,48 @@ async def train_bot(req: TrainRequest, background_tasks: BackgroundTasks, user=D
 
 @router.post("/complete")
 async def complete_onboarding(req: CompleteRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user), db=Depends(get_db), redis=Depends(get_redis)):
-    # 1. Verify bot ownership
-    bot_res = await db.table("bots").select("slug, name").eq("id", req.bot_id).eq("owner_id", user.id).single().execute()
-    if not bot_res.data:
-        raise HTTPException(status_code=403, detail="Bot not found or unauthorized")
+    import uuid
+    try:
+        uuid_obj = uuid.UUID(req.bot_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid bot_id format received: '{req.bot_id}'")
+
+    try:
+        with open('error_log.txt', 'a') as ef:
+            ef.write(f"DEBUG: Executing bot ownership check with bot_id={req.bot_id}, user.id={user.id}\n")
+        bot_res = await db.table("bots").select("slug, name").eq("id", req.bot_id).eq("owner_id", user.id).single().execute()
+        if not bot_res.data:
+            raise HTTPException(status_code=403, detail="Bot not found or unauthorized")
+            
+        bot_slug = bot_res.data["slug"]
+        bot_name = bot_res.data["name"]
+
+        with open('error_log.txt', 'a') as ef:
+            ef.write(f"DEBUG: Executing profiles update with user.id={user.id}\n")
+        await db.table("profiles").update({
+            "onboarding_completed": True
+        }).eq("id", user.id).execute()
+
+        token = secrets.token_urlsafe(16)
+        with open('error_log.txt', 'a') as ef:
+            ef.write(f"DEBUG: Executing playground_shares insert with bot_id={req.bot_id}\n")
+        await db.table("playground_shares").insert({
+            "bot_id": req.bot_id,
+            "token": token
+        }).execute()
         
-    bot_slug = bot_res.data["slug"]
-    bot_name = bot_res.data["name"]
+        playground_url = f"https://wraft.com/share/{token}"
+        dashboard_url = "https://wraft.com/dashboard"
 
-    # 2. UPDATE profiles
-    await db.table("profiles").update({
-        "onboarding_completed": True
-    }).eq("id", user.id).execute()
-
-    # 3. Create playground share
-    token = secrets.token_urlsafe(16)
-    await db.table("playground_shares").insert({
-        "bot_id": req.bot_id,
-        "token": token
-    }).execute()
-    
-    playground_url = f"https://wraft.com/share/{token}"
-    dashboard_url = "https://wraft.com/dashboard"
-
-    # Fetch phone from notification_settings
-    notif_res = await db.table("notification_settings").select("owner_whatsapp").eq("bot_id", req.bot_id).single().execute()
+        with open('error_log.txt', 'a') as ef:
+            ef.write(f"DEBUG: Executing notification_settings select with bot_id={req.bot_id}\n")
+        notif_res = await db.table("notification_settings").select("owner_whatsapp").eq("bot_id", req.bot_id).single().execute()
+    except Exception as e:
+        import traceback
+        with open('error_log.txt', 'a') as ef:
+            ef.write(f"DEBUG: Exception in complete_onboarding! {repr(e)}\n")
+            ef.write(traceback.format_exc() + "\n")
+        raise e
     owner_whatsapp = None
     if notif_res.data and notif_res.data.get("owner_whatsapp"):
         owner_whatsapp = notif_res.data.get("owner_whatsapp")
@@ -328,7 +375,7 @@ async def complete_onboarding(req: CompleteRequest, background_tasks: Background
         # Check if trial user
         profile_res = await db.table("profiles").select("plan_id").eq("id", user.id).single().execute()
         is_trial = False
-        if profile_res.data:
+        if profile_res.data and profile_res.data.get("plan_id"):
             plan_res = await db.table("plans").select("name").eq("id", profile_res.data["plan_id"]).single().execute()
             if plan_res.data and plan_res.data["name"] == "trial":
                 is_trial = True

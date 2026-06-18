@@ -1,0 +1,39 @@
+Traceback (most recent call last):
+  File "/Users/mohammedyaseen/Documents/LazyRiver/backend/routers/onboarding.py", line 222, in setup_workspace
+    "bot_slug": bot_slug,
+                ^^^^^^^^
+NameError: name 'bot_slug' is not defined
+
+22P02 ERROR on POST http://localhost:8000/api/v1/onboarding/complete: {'code': '22P02', 'details': None, 'hint': None, 'message': 'invalid input syntax for type uuid: "None"'}
+DEBUG: Executing bot ownership check with bot_id=3a2c277b-04a3-4e95-ab19-03707c1d97fb, user.id=f9427b10-9962-40ea-8e8f-9fbd5b013c87
+DEBUG: Executing profiles update with user.id=f9427b10-9962-40ea-8e8f-9fbd5b013c87
+DEBUG: Executing playground_shares insert with bot_id=3a2c277b-04a3-4e95-ab19-03707c1d97fb
+DEBUG: Executing notification_settings select with bot_id=3a2c277b-04a3-4e95-ab19-03707c1d97fb
+22P02 ERROR on POST http://localhost:8000/api/v1/onboarding/complete: {'code': '22P02', 'details': None, 'hint': None, 'message': 'invalid input syntax for type uuid: "None"'}
+Traceback (most recent call last):
+  File "/Users/mohammedyaseen/Documents/LazyRiver/backend/venv/lib/python3.11/site-packages/starlette/_exception_handler.py", line 51, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/mohammedyaseen/Documents/LazyRiver/backend/venv/lib/python3.11/site-packages/starlette/routing.py", line 73, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Users/mohammedyaseen/Documents/LazyRiver/backend/venv/lib/python3.11/site-packages/fastapi/routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mohammedyaseen/Documents/LazyRiver/backend/venv/lib/python3.11/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mohammedyaseen/Documents/LazyRiver/backend/routers/onboarding.py", line 379, in complete_onboarding
+    plan_res = await db.table("plans").select("name").eq("id", profile_res.data["plan_id"]).single().execute()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mohammedyaseen/Documents/LazyRiver/backend/venv/lib/python3.11/site-packages/postgrest/_async/request_builder.py", line 127, in execute
+    raise APIError(r.json())
+postgrest.exceptions.APIError: {'code': '22P02', 'details': None, 'hint': None, 'message': 'invalid input syntax for type uuid: "None"'}
+
+DEBUG: Executing bot ownership check with bot_id=117b9434-a1d7-4130-b873-ddb5b6217ad5, user.id=d4089474-44db-4621-9312-6cf18f0dc6d9
+DEBUG: Executing profiles update with user.id=d4089474-44db-4621-9312-6cf18f0dc6d9
+DEBUG: Executing playground_shares insert with bot_id=117b9434-a1d7-4130-b873-ddb5b6217ad5
+DEBUG: Executing notification_settings select with bot_id=117b9434-a1d7-4130-b873-ddb5b6217ad5
+DEBUG: Executing bot ownership check with bot_id=56f91f33-8589-42b6-8f5d-5e1434b6a6e3, user.id=25e6a502-81e9-4465-b224-31bc9f4c5510
+DEBUG: Executing profiles update with user.id=25e6a502-81e9-4465-b224-31bc9f4c5510
+DEBUG: Executing playground_shares insert with bot_id=56f91f33-8589-42b6-8f5d-5e1434b6a6e3
+DEBUG: Executing notification_settings select with bot_id=56f91f33-8589-42b6-8f5d-5e1434b6a6e3

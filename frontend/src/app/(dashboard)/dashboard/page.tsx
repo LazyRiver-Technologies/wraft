@@ -137,7 +137,13 @@ export default function DashboardOverviewPage() {
           <div className="rounded-lg border border-border-default bg-bg-secondary p-5 flex flex-col">
             <h3 className="mb-6 text-sm font-semibold text-text-primary">Conversations over time</h3>
             <div className="h-[280px] w-full flex-1">
-              {lineData.length > 0 ? (
+              {lineData.length === 0 && (
+                <div className="flex h-full items-center justify-center text-sm text-text-tertiary">
+                  No conversation data available for the selected period.
+                </div>
+              )}
+              
+              {lineData.length > 0 && (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={lineData}>
                     <XAxis 
@@ -169,10 +175,6 @@ export default function DashboardOverviewPage() {
                     />
                   </LineChart>
                 </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full items-center justify-center text-sm text-text-tertiary">
-                  No conversation data available for the selected period.
-                </div>
               )}
             </div>
           </div>
@@ -180,8 +182,14 @@ export default function DashboardOverviewPage() {
           <div className="rounded-lg border border-border-default bg-bg-secondary p-5 flex flex-col">
             <h3 className="mb-4 text-sm font-semibold text-text-primary">Recent Leads</h3>
             <div className="flex-1 flex flex-col gap-4">
-              {recentLeads.length > 0 ? (
-                recentLeads.map((lead: any) => (
+              {recentLeads.length === 0 && (
+                <div className="flex h-full flex-col items-center justify-center text-center gap-2">
+                  <Users className="h-8 w-8 text-bg-tertiary" />
+                  <p className="text-xs text-text-tertiary">No leads captured yet.</p>
+                </div>
+              )}
+              
+              {recentLeads.length > 0 && recentLeads.map((lead: any) => (
                   <div key={lead.id} className="flex items-center gap-3 border-b border-border-default pb-3 last:border-0 last:pb-0">
                     <Avatar className="h-9 w-9 border-none bg-bg-tertiary">
                       <AvatarFallback className="text-xs text-text-secondary">
@@ -196,13 +204,7 @@ export default function DashboardOverviewPage() {
                       {new Date(lead.created_at).toLocaleDateString()}
                     </span>
                   </div>
-                ))
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center text-center gap-2">
-                  <Users className="h-8 w-8 text-bg-tertiary" />
-                  <p className="text-xs text-text-tertiary">No leads captured yet.</p>
-                </div>
-              )}
+              ))}
             </div>
             {bots.length > 0 && (
               <Link href={`/dashboard/bots/${bots[0].id}/leads`} className="mt-4 block text-center text-sm font-medium text-brand hover:text-brand-hover">

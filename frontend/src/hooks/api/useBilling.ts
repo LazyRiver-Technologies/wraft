@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { createClient } from "@/utils/supabase/client"
+import { useStore } from "@/lib/store"
 
 export interface Plan {
   id: string
@@ -56,8 +57,9 @@ export interface Profile {
 }
 
 export function useProfileWithPlan() {
+  const user = useStore(state => state.user)
   return useQuery<Profile>({
-    queryKey: ["profile_plan"],
+    queryKey: ["profile_plan", user?.id],
     queryFn: async () => {
       const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
@@ -65,11 +67,18 @@ export function useProfileWithPlan() {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('*, plans(*)')
+        .select('*, plans(*, plan_features(*))')
         .eq('id', session.user.id)
         .single()
         
       if (error) throw error
+
+      if (data?.plans?.plan_features) {
+        data.plans.plan_features.forEach((f: any) => {
+          data.plans[f.feature_key] = f.feature_value
+        })
+        delete data.plans.plan_features
+      }
       return data as Profile
     },
     staleTime: 30 * 60 * 1000,

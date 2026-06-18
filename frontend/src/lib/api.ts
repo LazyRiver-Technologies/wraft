@@ -32,7 +32,19 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
     let message = 'API Error'
     try {
       const err = await response.json()
-      message = err.detail || message
+      if (err.detail) {
+        if (typeof err.detail === 'string') {
+          message = err.detail
+        } else if (Array.isArray(err.detail)) {
+          message = err.detail.map((e: any) => `${e.loc?.slice(-1) || 'Field'}: ${e.msg}`).join(', ')
+        } else if (typeof err.detail === 'object' && err.detail.message) {
+          message = err.detail.message
+        } else {
+          message = JSON.stringify(err.detail)
+        }
+      } else if (err.message) {
+        message = err.message
+      }
     } catch {}
     
     // Global 402 handling for plan/trial expiration

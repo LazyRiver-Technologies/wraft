@@ -9,6 +9,7 @@ import { Key, CreditCard, User, LogOut, CheckCircle2 } from "lucide-react"
 import { useStore } from "@/lib/store"
 import { createClient } from "@/utils/supabase/client"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
 import { useProfileWithPlan, useUpdateProfile } from "@/hooks/api/useBilling"
@@ -16,11 +17,13 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("profile")
+  const user = useStore(state => state.user)
+  const setUser = useStore(state => state.setUser)
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState("")
-  const user = useStore(state => state.user)
-  const router = useRouter()
-  const supabase = createClient()
   const { toast } = useToast()
 
   const { data: profile, isLoading: profileLoading } = useProfileWithPlan()
@@ -58,7 +61,10 @@ export default function SettingsPage() {
   }
 
   const handleLogout = async () => {
+    const supabase = createClient()
     await supabase.auth.signOut()
+    setUser(null, null)
+    queryClient.clear()
     router.push("/login")
   }
 
@@ -66,6 +72,7 @@ export default function SettingsPage() {
     setLoading(true)
     setMessage("")
     try {
+      const supabase = createClient()
       const { error } = await supabase.auth.resetPasswordForEmail(user?.email || "")
       if (error) throw error
       setMessage("Password reset link sent to your email!")

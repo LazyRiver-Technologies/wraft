@@ -42,6 +42,7 @@ async def create_text_source(bot_id: str, body: TextSourceCreate, background_tas
         "status": "pending"
     }).execute()
     
+    if not insert_res.data: raise HTTPException(status_code=500, detail='Failed to create source')
     new_source = insert_res.data[0]
     background_tasks.add_task(run_ingestion_pipeline, new_source["id"], db, redis)
     
@@ -66,6 +67,7 @@ async def create_url_source(bot_id: str, body: UrlSourceCreate, background_tasks
         "status": "pending"
     }).execute()
     
+    if not insert_res.data: raise HTTPException(status_code=500, detail='Failed to create source')
     new_source = insert_res.data[0]
     background_tasks.add_task(run_ingestion_pipeline, new_source["id"], db, redis)
     
@@ -90,6 +92,7 @@ async def create_sitemap_source(bot_id: str, body: SitemapSourceCreate, backgrou
         "status": "pending"
     }).execute()
     
+    if not insert_res.data: raise HTTPException(status_code=500, detail='Failed to create source')
     new_source = insert_res.data[0]
     background_tasks.add_task(run_ingestion_pipeline, new_source["id"], db, redis)
     
@@ -133,6 +136,7 @@ async def create_pdf_source(bot_id: str, background_tasks: BackgroundTasks, file
         }).execute()
         
         background_tasks.add_task(run_ingestion_pipeline, source_id, db, redis)
+        if not insert_res.data: raise HTTPException(status_code=500, detail='Failed to insert data')
         return insert_res.data[0]
         
     except Exception as e:
@@ -154,13 +158,17 @@ async def list_sources(bot_id: str, user=Depends(get_current_user), db=Depends(g
 async def delete_source(bot_id: str, source_id: str, user=Depends(get_current_user), db=Depends(get_db)):
     await verify_bot_ownership(bot_id, user, db)
     
+    # Fetch embedding_dim
+    bot_settings_res = await db.table("bot_settings").select("embedding_dim").eq("bot_id", bot_id).single().execute()
+    embedding_dim = 768
+    if bot_settings_res.data and bot_settings_res.data.get("embedding_dim"):
+        embedding_dim = bot_settings_res.data["embedding_dim"]
+
     # Invalidate cache locally
-    from redis_client import get_redis
     from services.cache import invalidate_bot_cache
-    redis_conn = await get_redis()
-    await invalidate_bot_cache(bot_id, redis_conn)
+    await invalidate_bot_cache(bot_id, embedding_dim, db)
     
-    await db.table("document_chunks").delete().eq("source_id", source_id).execute()
+    await db.table(f"document_chunks_{embedding_dim}").delete().eq("source_id", source_id).execute()
     await db.table("data_sources").update({
         "deleted_at": datetime.now(timezone.utc).isoformat(),
         "status": "failed",
@@ -191,6 +199,7 @@ async def update_source(bot_id: str, source_id: str, body: SourceUpdate, user=De
     if not upd_res.data:
         raise HTTPException(status_code=404, detail="Source not found")
         
+    if not upd_res.data: raise HTTPException(status_code=404, detail='Not found')
     return upd_res.data[0]
 
 @router.post("/{bot_id}/sources/{source_id}/retrain")

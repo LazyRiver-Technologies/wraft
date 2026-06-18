@@ -7,6 +7,13 @@ from routers.bots import verify_bot_ownership
 from services.limits import check_qa_limit
 from ingestion.embedder import embed_chunks
 
+async def get_qa_table_name(bot_id: str, db) -> str:
+    res = await db.table("bot_settings").select("embedding_dim").eq("bot_id", bot_id).limit(1).execute()
+    dim = 768
+    if res.data and len(res.data) > 0 and res.data[0].get("embedding_dim"):
+        dim = res.data[0]["embedding_dim"]
+    return f"qa_pairs_{dim}"
+
 router = APIRouter()
 
 class QAPairCreate(BaseModel):
@@ -34,7 +41,8 @@ async def create_qa_pair(bot_id: str, payload: QAPairCreate, user=Depends(get_cu
     query_embedding = embeddings[0]
     
     # 2. Insert into DB
-    insert_res = await db.table("qa_pairs").insert({
+    table_name = await get_qa_table_name(bot_id, db)
+    insert_res = await db.table(table_name).insert({
         "bot_id": bot_id,
         "question": payload.question,
         "answer": payload.answer,
@@ -42,6 +50,7 @@ async def create_qa_pair(bot_id: str, payload: QAPairCreate, user=Depends(get_cu
     }).execute()
     
     # Exclude embedding from response
+    if not insert_res.data: raise HTTPException(status_code=500, detail='Failed to insert')
     data = insert_res.data[0]
     data.pop("embedding", None)
     return data
@@ -50,7 +59,8 @@ async def create_qa_pair(bot_id: str, payload: QAPairCreate, user=Depends(get_cu
 async def list_qa_pairs(bot_id: str, user=Depends(get_current_user), db=Depends(get_db)):
     await verify_bot_ownership(bot_id, user, db)
     
-    res = await db.table("qa_pairs").select("id, bot_id, question, answer, is_active, hit_count, created_at, updated_at").eq("bot_id", bot_id).eq("is_active", True).order("hit_count", desc=True).execute()
+    table_name = await get_qa_table_name(bot_id, db)
+    res = await db.table(table_name).select("id, bot_id, question, answer, is_active, hit_count, created_at, updated_at").eq("bot_id", bot_id).eq("is_active", True).order("hit_count", desc=True).execute()
     return res.data
 
 @router.patch("/{bot_id}/qa/{qa_id}")
@@ -69,10 +79,12 @@ async def update_qa_pair(bot_id: str, qa_id: str, payload: QAPairUpdate, user=De
             raise HTTPException(status_code=500, detail="Failed to embed new question.")
         update_data["embedding"] = embeddings[0]
         
-    res = await db.table("qa_pairs").update(update_data).eq("id", qa_id).eq("bot_id", bot_id).execute()
+    table_name = await get_qa_table_name(bot_id, db)
+    res = await db.table(table_name).update(update_data).eq("id", qa_id).eq("bot_id", bot_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Q&A pair not found")
         
+    if not res.data: raise HTTPException(status_code=404, detail='Not found')
     data = res.data[0]
     data.pop("embedding", None)
     return data
@@ -82,7 +94,8 @@ async def delete_qa_pair(bot_id: str, qa_id: str, user=Depends(get_current_user)
     await verify_bot_ownership(bot_id, user, db)
     
     # Soft delete
-    await db.table("qa_pairs").update({"is_active": False}).eq("id", qa_id).eq("bot_id", bot_id).execute()
+    table_name = await get_qa_table_name(bot_id, db)
+    await db.table(table_name).update({"is_active": False}).eq("id", qa_id).eq("bot_id", bot_id).execute()
     return None
 
 @router.post("/{bot_id}/qa/bulk")
@@ -110,6 +123,7 @@ async def bulk_create_qa_pairs(bot_id: str, payload: QAPairBulkCreate, user=Depe
             "embedding": embeddings[i]
         })
         
-    res = await db.table("qa_pairs").insert(insert_data).execute()
+    table_name = await get_qa_table_name(bot_id, db)
+    res = await db.table(table_name).insert(insert_data).execute()
     
     return {"status": "ok", "inserted": len(res.data)}

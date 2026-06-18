@@ -41,7 +41,11 @@ export default function BotSettingsPage(props: { params: any }) {
 
   const [aiConfig, setAiConfig] = useState({
     system_prompt: "You are a helpful customer support agent. Always answer politely and use the provided context to answer questions. If you do not know the answer, explicitly state that you don't know.",
-    model: "gemini-2.5-flash-lite",
+    generation_model: "gemini-2.5-flash-lite",
+    generation_provider: "google",
+    embedding_provider: "google",
+    embedding_model: "text-embedding-004",
+    embedding_dim: 768,
     temperature: 0.3,
     search_mode: "hybrid",
     max_chunks: 5,
@@ -57,7 +61,11 @@ export default function BotSettingsPage(props: { params: any }) {
     if (bot?.bot_settings) {
       setAiConfig(prev => ({
         system_prompt: bot.bot_settings?.system_prompt || prev.system_prompt,
-        model: bot.bot_settings?.model || prev.model,
+        generation_model: bot.bot_settings?.generation_model || prev.generation_model,
+        generation_provider: bot.bot_settings?.generation_provider || prev.generation_provider,
+        embedding_provider: bot.bot_settings?.embedding_provider || prev.embedding_provider,
+        embedding_model: bot.bot_settings?.embedding_model || prev.embedding_model,
+        embedding_dim: bot.bot_settings?.embedding_dim || prev.embedding_dim,
         temperature: bot.bot_settings?.temperature ?? prev.temperature,
         search_mode: bot.bot_settings?.search_mode || prev.search_mode,
         max_chunks: bot.bot_settings?.max_chunks || prev.max_chunks,
@@ -221,7 +229,7 @@ export default function BotSettingsPage(props: { params: any }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="grid gap-2">
                   <label className="text-sm font-medium text-text-primary">LLM Model</label>
-                  <Select value={aiConfig.model} onValueChange={(val) => setAiConfig(prev => ({ ...prev, model: val }))}>
+                  <Select value={aiConfig.generation_model} onValueChange={(val) => setAiConfig(prev => ({ ...prev, generation_model: val }))}>
                     <SelectTrigger className="bg-bg-secondary border-border-default">
                       <SelectValue placeholder="Select model" />
                     </SelectTrigger>

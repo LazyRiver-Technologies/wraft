@@ -18,6 +18,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useUsage } from "@/hooks/api/useUsage"
+import { useQueryClient } from "@tanstack/react-query"
 
 const ROUTE_NAMES: Record<string, string> = {
   chat: "Playground",
@@ -39,6 +40,7 @@ export function DashboardHeader({ setMobileOpen }: { setMobileOpen?: (b: boolean
   const setUser = useStore((state) => state.setUser)
   const router = useRouter()
   const { data: usage, isLoading } = useUsage()
+  const queryClient = useQueryClient()
 
   const buildBreadcrumbs = () => {
     if (pathname === "/dashboard") {
@@ -87,6 +89,7 @@ export function DashboardHeader({ setMobileOpen }: { setMobileOpen?: (b: boolean
     await supabase.auth.signOut()
     document.cookie = "sb-access-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"
     setUser(null, null)
+    queryClient.clear()
     router.push("/login")
   }
 

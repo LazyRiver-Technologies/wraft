@@ -74,7 +74,9 @@ def is_greeting(message: str) -> bool:
 
 async def is_off_topic(
     question_embedding: list,
+    question: str,
     bot_id: str,
+    embedding_dim: int,
     db
 ) -> bool:
     """
@@ -84,20 +86,30 @@ async def is_off_topic(
     to anything in the knowledge base.
     """
     try:
-        chunks = await db.rpc("match_chunks", {
-            "query_embedding": question_embedding,
-            "query_text": "",
+        chunks = await db.rpc(f"match_chunks_{embedding_dim}", {
+            "p_query_embedding": question_embedding,
+            "p_query_text": question,
             "p_bot_id": bot_id,
-            "match_count": 1,
-            "match_threshold": 0.0,
-            "p_search_mode": "vector"
+            "p_match_count": 1,
+            "p_fts_config": "english"
         }).execute()
         
         if not chunks.data:
             return True
         
-        best_similarity = chunks.data[0].get("similarity", 0)
-        return best_similarity < 0.35
+        chunk = chunks.data[0]
+        
+        # Database might return 'similarity' (cosine) or 'score' (RRF hybrid search)
+        # Hybrid search returns BOTH! We must check score first if it's > 0.
+        score = chunk.get("score", 0.0)
+        if score > 0.0:
+            # RRF scores are typically 1/(60+rank), so rank 1 is ~0.016. Max is ~0.033.
+            # A score < 0.01 means it ranked worse than 40th.
+            return score < 0.010
+        elif "similarity" in chunk:
+            return chunk["similarity"] < 0.35
+            
+        return False # Fallback if unknown format
         
     except Exception as e:
         logger.warning(f"Off-topic check failed: {e}")
@@ -105,13 +117,12 @@ async def is_off_topic(
 
 from services.cache_service import get_bot_settings_cached
 
-async def expand_acronyms(question: str, bot_id: str, db, redis) -> str:
+async def expand_acronyms(question: str, bot_settings: dict) -> str:
     """
     Expands acronyms before embedding.
-    Uses client-defined acronym map from bot_settings (Cached).
+    Uses client-defined acronym map from bot_settings.
     """
-    settings = await get_bot_settings_cached(bot_id, db, redis)
-    acronym_map = settings.get("acronym_map", {})
+    acronym_map = bot_settings.get("acronym_map", {})
     if not acronym_map:
         return question
     
@@ -225,13 +236,15 @@ Return ONLY the rewritten question. No explanation."""
         logger.warning(f"Query rewrite failed: {e}")
         return question
 
-async def check_qa_pairs(question: str, bot_id: str, db) -> str | None:
+async def check_qa_pairs(question: str, bot_id: str, bot_settings: dict, db) -> str | None:
     # Check TTLCache first
     pairs = qa_cache.get(bot_id)
     
+    embedding_dim = bot_settings.get("embedding_dim", 768)
+
     if pairs is None:
         # Fetch active Q&A pairs with embeddings pre-loaded
-        qa_res = await db.table("qa_pairs").select("id, answer, embedding, hit_count").eq("bot_id", bot_id).eq("is_active", True).execute()
+        qa_res = await db.table(f"qa_pairs_{embedding_dim}").select("id, answer, embedding, hit_count").eq("bot_id", bot_id).eq("is_active", True).execute()
         pairs = qa_res.data or []
         qa_cache[bot_id] = pairs
         
@@ -255,7 +268,13 @@ async def check_qa_pairs(question: str, bot_id: str, db) -> str | None:
         if not emb or len(emb) != len(query_vec):
             continue
             
-        score = np.dot(query_vec, emb)
+        # Euclidean normalized cosine similarity
+        norm_q = np.linalg.norm(query_vec)
+        norm_e = np.linalg.norm(emb)
+        if norm_q == 0 or norm_e == 0:
+            continue
+            
+        score = np.dot(query_vec, emb) / (norm_q * norm_e)
         if score > best_score:
             best_score = score
             best_match = p
@@ -263,7 +282,7 @@ async def check_qa_pairs(question: str, bot_id: str, db) -> str | None:
     # Deterministic override threshold
     if best_score > 0.92 and best_match:
         # Update hit_count to track conversion effectively
-        await db.table("qa_pairs").update({"hit_count": best_match.get("hit_count", 0) + 1}).eq("id", best_match["id"]).execute()
+        await db.table(f"qa_pairs_{embedding_dim}").update({"hit_count": best_match.get("hit_count", 0) + 1}).eq("id", best_match["id"]).execute()
         return best_match["answer"]
         
     return None
@@ -273,21 +292,7 @@ async def embed_single(text: str) -> list:
     embeddings = await embed_chunks([text])
     return embeddings[0] if embeddings else []
 
-async def call_llm(prompt: str, temperature: float) -> tuple[str, int]:
-    try:
-        model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash-lite",
-            generation_config=genai.GenerationConfig(temperature=temperature)
-        )
-        response = await asyncio.to_thread(model.generate_content, prompt)
-        text = response.text.strip()
-        
-        # very rough token estimation
-        tokens = int(len(prompt) / 4) + int(len(text) / 4)
-        return text, tokens
-    except Exception as e:
-        logger.error(f"LLM call failed: {e}")
-        return "I am currently experiencing technical difficulties.", 0
+
 
 async def get_rag_response(
     question: str, 
@@ -298,7 +303,8 @@ async def get_rag_response(
     channel: str, 
     db, 
     redis,
-    bot_name: str = "AI Bot"
+    bot_name: str = "AI Bot",
+    background_tasks=None
 ) -> dict:
     """
     RAG pipeline:
@@ -323,8 +329,9 @@ async def get_rag_response(
                 f"'{question[:100]}'"
             )
             # notify owner about injection attempt
-            asyncio.create_task(
-                send_owner_notification(
+            if background_tasks:
+                background_tasks.add_task(
+                    send_owner_notification,
                     owner_whatsapp="",
                     notification_type="injection_attempt",
                     data={
@@ -333,7 +340,6 @@ async def get_rag_response(
                     },
                     bot_id=bot_id, db=db, redis=redis
                 )
-            )
             return {
                 "response": f"I'm here to help with questions about {business_name} only.",
                 "cache_hit": False,
@@ -372,7 +378,7 @@ async def get_rag_response(
         }
 
     # Step 0.5 — Acronym expansion
-    question = await expand_acronyms(question, bot_id, db, redis)
+    question = await expand_acronyms(question, bot_settings)
     
     # Step 0.6 — Query rewrite for ambiguous questions
     question = await rewrite_query(
@@ -388,7 +394,7 @@ async def get_rag_response(
     await check_message_limit(owner_id, db)
 
     # 1.5 Deterministic Q&A Target Override (Zero Cost, Zero Hallucination)
-    qa_answer = await check_qa_pairs(question, bot_id, db)
+    qa_answer = await check_qa_pairs(question, bot_id, bot_settings, db)
     if qa_answer:
         return {
             "response": qa_answer,
@@ -404,12 +410,14 @@ async def get_rag_response(
     if not question_embedding:
         return {"response": "Error configuring embedding model.", "cache_hit": False, "sources": []}
 
+    embedding_dim = bot_settings.get("embedding_dim", 768)
+
     if guardrails_enabled:
         # GUARDRAIL 3 — Off-topic check
         # runs AFTER embedding so we reuse the embedding
         # runs AFTER Q&A check so Q&A pairs always work
         off_topic = await is_off_topic(
-            question_embedding, bot_id, db
+            question_embedding, question, bot_id, embedding_dim, db
         )
         if off_topic:
             await publish_admin_event("guardrail_trigger", {
@@ -430,45 +438,57 @@ async def get_rag_response(
             }
 
     # 3. Semantic Cache Check using embedding
-    cached_resp = await get_cached_response(question, bot_id, question_embedding, redis)
-    if cached_resp:
-        asyncio.create_task(increment_usage(owner_id, bot_id, 0, channel, db))
-        return {
-            "response": cached_resp,
-            "cache_hit": True,
-            "sources": [],
-            "tokens_used": 0,
-            "latency_ms": int((time.time() - start_time) * 1000),
-            "confidence_score": 0.99
-        }
+    # BYPASSED FOR NOW TO CLEAR BAD CACHED RESPONSES
+    # cached_resp = await get_cached_response(question, bot_id, question_embedding, embedding_dim, db)
+    # if cached_resp:
+    #     if background_tasks:
+    #         background_tasks.add_task(increment_usage, owner_id, bot_id, 0, channel, db)
+    #     return {
+    #         "response": cached_resp,
+    #         "cache_hit": True,
+    #         "sources": [{"id": "cache", "name": "Cached RAG Response"}],
+    #         "tokens_used": 0,
+    #         "latency_ms": int((time.time() - start_time) * 1000),
+    #         "confidence_score": 0.99
+    #     }
 
     # 4. Context Matching
-    # Supabase DB function `match_chunks`
+    # Supabase DB function `match_chunks_{dim}`
     match_count = bot_settings.get("max_chunks", 5)
     search_mode = bot_settings.get("search_mode", "hybrid")
     
     # Passing params strictly matched to defined prompt parameters
     rpc_params = {
-        "query_embedding": question_embedding,
-        "query_text": question,
+        "p_query_embedding": question_embedding,
+        "p_query_text": question,
         "p_bot_id": bot_id,
-        "match_count": match_count,
-        "match_threshold": bot_settings.get("match_threshold", 0.5),
-        "p_search_mode": search_mode
+        "p_match_count": match_count,
+        "p_fts_config": bot_settings.get("fts_config", "english")
     }
     
-    match_res = await db.rpc("match_chunks", rpc_params).execute()
+    match_res = await db.rpc(f"match_chunks_{embedding_dim}", rpc_params).execute()
     chunks = match_res.data or []
     
     max_similarity = 0.0
+    is_rrf = False
     if chunks:
-        scores = [c.get("similarity", 0.0) for c in chunks if c.get("similarity")]
+        scores = [c.get("similarity", 0.0) for c in chunks if "similarity" in c]
         if scores:
             max_similarity = max(scores)
+        else:
+            scores_rrf = [c.get("score", 0.0) for c in chunks if "score" in c]
+            if scores_rrf:
+                max_similarity = max(scores_rrf)
+                is_rrf = True
 
     # GUARDRAIL 4 — Low confidence / hallucination prevention
     if chunks:
-        if max_similarity < 0.45:
+        threshold = 0.015 if is_rrf else 0.45
+        with open("debug_log.txt", "a") as f:
+            f.write(f"GUARDRAIL 4: max_similarity={max_similarity}, threshold={threshold}, is_rrf={is_rrf}\n")
+        if max_similarity < threshold:
+            with open("debug_log.txt", "a") as f:
+                f.write("GUARDRAIL 4: TRIGGERED!\n")
             fallback = bot_settings.get("fallback_message", "I couldn't find any relevant information to answer your question.")
             return {
                 "response": fallback,
@@ -569,14 +589,21 @@ USER QUESTION:
                 max_tokens=1024,
             )
             answer_text = groq_response.choices[0].message.content or ""
+            with open("debug_log.txt", "a") as f: f.write(f"LLM Groq OUTPUT: {answer_text}\n")
             tokens_used = groq_response.usage.total_tokens if groq_response.usage else 0
         else:
             try:
                 genai.configure(api_key=settings.GEMINI_API_KEY)
                 
                 # Dynamically assign native tools constraints if mapping exists
+                generation_provider = bot_settings.get("generation_provider", "google")
+                generation_model = bot_settings.get("generation_model", "gemini-2.5-flash-lite")
+
+                if generation_provider != "google":
+                    logger.warning(f"Provider {generation_provider} is not fully supported yet. Falling back to google.")
+
                 model_params = {
-                    "model_name": "gemini-2.5-flash-lite",
+                    "model_name": generation_model,
                     "generation_config": genai.GenerationConfig(
                         temperature=temperature,
                         max_output_tokens=1024,
@@ -601,8 +628,10 @@ USER QUESTION:
                 # Check for structural explicit function call
                 action_triggered = None
                 if tools and response.candidates and response.candidates[0].content.parts:
+                    has_function_calls = False
                     for part in response.candidates[0].content.parts:
                         if hasattr(part, "function_call") and part.function_call:
+                            has_function_calls = True
                             # Parse out specific target call parameters safely
                             fc = part.function_call
                             action_triggered = fc.name
@@ -619,43 +648,50 @@ USER QUESTION:
                             )
                             
                             # Mutate full_prompt explicitly injecting the functional resolution constraint securely
-                            full_prompt += f"\n\n[SYSTEM FUNCTION EXECUTED: '{action_triggered}']\nRESULT:\n{action_result}\n\nPlease respond to the user based on this exact result."
-                            
-                            # Re-trigger pipeline
-                            followup_response = await asyncio.to_thread(
-                                model.generate_content,
-                                full_prompt
-                            )
-                            response = followup_response
-                            if hasattr(followup_response, "usage_metadata") and followup_response.usage_metadata:
-                                tokens_used += followup_response.usage_metadata.total_token_count
-                            break
+                            full_prompt += f"\n\n[SYSTEM FUNCTION EXECUTED: '{action_triggered}']\nRESULT:\n{action_result}\n"
+                    
+                    if has_function_calls:
+                        full_prompt += "\nPlease respond to the user based on these exact results."
+                        # Re-trigger pipeline
+                        followup_response = await asyncio.to_thread(
+                            model.generate_content,
+                            full_prompt
+                        )
+                        response = followup_response
+                        if hasattr(followup_response, "usage_metadata") and followup_response.usage_metadata:
+                            tokens_used += followup_response.usage_metadata.total_token_count
 
                 answer_text = response.text
+                with open("debug_log.txt", "a") as f: f.write(f"LLM Gemini OUTPUT: {answer_text}\n")
                 if tokens_used == 0:
-                     tokens_used = len(full_prompt) // 4 + len(answer_text) // 4
+                     tokens_used = len(question) // 4 + len(answer_text) // 4
     
-            except (google.api_core.exceptions.ServiceUnavailable, google.api_core.exceptions.InternalServerError, google.api_core.exceptions.DeadlineExceeded) as e:
-                logger.warning(f"Gemini unavailable, using Groq fallback: {e}")
-                from groq import AsyncGroq
-                groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
-                
-                groq_response = await groq_client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[
-                        {"role": "system", "content": system_part},
-                        {"role": "user", "content": question}
-                    ],
-                    temperature=temperature,
-                    max_tokens=1024,
-                )
-                answer_text = groq_response.choices[0].message.content or ""
-                tokens_used = groq_response.usage.total_tokens if groq_response.usage else 0
+            except Exception as e:
+                if isinstance(e, (google.api_core.exceptions.ServiceUnavailable, google.api_core.exceptions.InternalServerError, google.api_core.exceptions.DeadlineExceeded)):
+                    logger.warning(f"Gemini unavailable, using Groq fallback: {e}")
+                    from groq import AsyncGroq
+                    groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+                    
+                    groq_response = await groq_client.chat.completions.create(
+                        model="llama-3.1-8b-instant",
+                        messages=[
+                            {"role": "system", "content": system_part},
+                            {"role": "user", "content": question}
+                        ],
+                        temperature=temperature,
+                        max_tokens=1024,
+                    )
+                    answer_text = groq_response.choices[0].message.content or ""
+                    tokens_used = groq_response.usage.total_tokens if groq_response.usage else 0
+                else:
+                    raise e
 
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
         logger.error(f"LLM API failure: {e}\n{tb}")
+        with open("debug_log.txt", "a") as f:
+            f.write(f"LLM EXCEPTION THROWN: {type(e).__name__}: {str(e)}\n{tb}\n")
         return {
             "response": bot_settings.get(
                 "fallback_message",
@@ -670,10 +706,12 @@ USER QUESTION:
         }
 
     # 9. Store in cache using background task
-    asyncio.create_task(store_cached_response(bot_id, question_embedding, answer_text, redis))
+    if background_tasks:
+        background_tasks.add_task(store_cached_response, bot_id, question, question_embedding, answer_text, embedding_dim, db)
 
     # 10. Increment usage profiling
-    asyncio.create_task(increment_usage(owner_id, bot_id, tokens_used, channel, db))
+    if background_tasks:
+        background_tasks.add_task(increment_usage, owner_id, bot_id, tokens_used, channel, db)
 
     source_ids = list(set([c.get("source_id") for c in chunks if c.get("source_id")]))
     

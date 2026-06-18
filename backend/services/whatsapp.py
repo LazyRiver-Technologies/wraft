@@ -108,6 +108,24 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
     logger = logging.getLogger(__name__)
     
     try:
+        class InlineBackgroundTasks:
+            def __init__(self):
+                self.tasks = []
+            def add_task(self, func, *args, **kwargs):
+                self.tasks.append((func, args, kwargs))
+            async def execute_all(self):
+                for func, args, kwargs in self.tasks:
+                    try:
+                        import inspect
+                        if inspect.iscoroutinefunction(func):
+                            await func(*args, **kwargs)
+                        else:
+                            func(*args, **kwargs)
+                    except Exception as e:
+                        logger.error(f"Inline background task error: {e}")
+                        
+        inline_bg_tasks = InlineBackgroundTasks()
+
         # Fetch Bot Configurations
         bot_res = await db.table("bots").select("is_active, owner_id, bot_settings(*), whatsapp_configs(*)").eq("id", bot_id).single().execute()
         
@@ -141,7 +159,7 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
              
         # Supabase joins array of configs
         config = whatsapp_config[0]
-        access_token = config.get("access_token_enc")
+        access_token = config.get("access_token_secret_id")
         phone_number_id = config.get("phone_number_id")
         
         if not access_token or not phone_number_id:
@@ -160,6 +178,8 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
                 "channel": "whatsapp",
                 "message_count": 0
             }).execute()
+            if not new_conv.data:
+                return
             conversation = new_conv.data[0]
             
         conversation_id = conversation["id"]
@@ -178,7 +198,8 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
             owner_id=bot.get("owner_id", ""),
             channel="whatsapp",
             db=db,
-            redis=redis_client
+            redis=redis_client,
+            background_tasks=inline_bg_tasks
         )
         
         bot_reply = rag_result["response"]
@@ -195,18 +216,24 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
         await db.table("messages").insert([
             {
                 "conversation_id": conversation_id,
+                "bot_id": bot_id,
                 "role": "user",
                 "content": message,
-                "tokens_used": 0,
+                "tokens_in": len(message) // 4,
+                "tokens_out": 0,
+                "cost_paise": 0,
                 "cache_hit": False,
                 "sources": [],
                 "latency_ms": 0
             },
             {
                 "conversation_id": conversation_id,
+                "bot_id": bot_id,
                 "role": "assistant",
                 "content": bot_reply,
-                "tokens_used": rag_result.get("tokens_used", 0),
+                "tokens_in": 0,
+                "tokens_out": rag_result.get("tokens_used", 0),
+                "cost_paise": 0,
                 "cache_hit": rag_result.get("cache_hit", False),
                 "latency_ms": rag_result.get("latency_ms", 0),
                 "sources": rag_result.get("sources", [])
@@ -225,8 +252,10 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
                 "p_owner_id": owner_id,
                 "p_increment": 1
             }).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"CRITICAL: Failed to increment billing for owner {owner_id} via whatsapp: {e}")
+            
+        await inline_bg_tasks.execute_all()
 
         source = rag_result.get("source", "")
         if source and source.startswith("guardrail_"):

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, Depends, HTTPException, Header
+from fastapi import APIRouter, Request, Response, Depends, HTTPException, Header, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 from typing import Optional
 from database import get_db
@@ -6,7 +6,6 @@ from redis_client import get_redis
 from config import settings
 from services.whatsapp import verify_meta_signature, parse_whatsapp_message, process_whatsapp_job
 from services.limits import get_profile_with_plan
-from fastapi import BackgroundTasks
 import json
 
 router = APIRouter()

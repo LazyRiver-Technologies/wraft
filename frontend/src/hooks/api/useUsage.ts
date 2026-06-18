@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchApi } from '@/lib/api'
+import { useStore } from "@/lib/store"
 
 export interface UsageData {
   plan_name: string
@@ -13,8 +14,9 @@ export interface UsageData {
 }
 
 export function useUsage() {
-  return useQuery({
-    queryKey: ['usage', 'me'],
+  const user = useStore(state => state.user)
+  return useQuery<UsageData>({
+    queryKey: ['usage', 'me', user?.id],
     queryFn: async (): Promise<UsageData> => {
       return fetchApi('/usage/me')
     }
