@@ -130,19 +130,27 @@ def execution_node(state: OrchestratorState) -> OrchestratorState:
     RULES TO FOLLOW:
     {state.get('agent_rules')}
     
-    CURRENT ISSUE:
-    {state.get('issue_title')}
-    {state.get('issue_body')}
+    CURRENT ISSUE TO FIX:
+    Title: {state.get('issue_title')}
+    Description: {state.get('issue_body')}
     
-    CONTEXT FILES PROVIDED:
+    EXISTING CODE FILES (you MUST preserve these exactly, only adding or modifying what the issue requires):
     {context_str}
     
-    FEEDBACK FROM PREVIOUS VERIFICATION (if any):
+    FEEDBACK FROM PREVIOUS VERIFICATION ATTEMPT (if any):
     {state.get('verification_feedback', 'None')}
     
-    Based on the issue and rules, provide the fully updated code for the files that need changing.
-    Respond with a JSON object where the keys are the file paths, and the values are the COMPLETE new code contents.
-    Example: {{"backend/services/rag.py": "import os\\n..."}}
+    CRITICAL RULES FOR CODE GENERATION:
+    1. You MUST return the COMPLETE file contents for every file you modify. Do not return partial files or snippets.
+    2. Do NOT rename any existing variables, functions, classes, or constants. The variable `HARMFUL_PATTERNS` must remain `HARMFUL_PATTERNS`, etc.
+    3. Do NOT remove any existing functionality, imports, or code blocks unless the issue explicitly says to remove them.
+    4. Do NOT change function signatures unless the issue explicitly requires it.
+    5. Only ADD new code or MODIFY the specific lines described in the issue.
+    6. Preserve ALL existing comments and docstrings.
+    7. Match the exact indentation style of the existing code (4-space indent for Python).
+    
+    Respond with a JSON object where the keys are the file paths (relative to project root), and the values are the COMPLETE new file contents as strings.
+    Example: {{"backend/services/rag.py": "import os\\nimport time\\n..."}}
     """
     
     try:
@@ -151,7 +159,7 @@ def execution_node(state: OrchestratorState) -> OrchestratorState:
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                temperature=0.2, # Slight temp for creative problem solving
+                temperature=0.1,
             )
         )
         proposed_files = json.loads(response.text)
