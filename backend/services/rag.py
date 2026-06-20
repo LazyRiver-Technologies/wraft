@@ -13,6 +13,10 @@ import logging
 import numpy as np
 from cachetools import TTLCache
 
+# ADDED IMPORTS FOR PYDANTIC
+from pydantic import BaseModel, Field, ValidationError
+from typing import Optional, Dict, Any
+
 logger = logging.getLogger(__name__)
 
 # Cache up to 1000 bots' QA pairs for 5 minutes to prevent network saturation
@@ -294,6 +298,43 @@ async def embed_single(text: str) -> list:
     embeddings = await embed_chunks([text])
     return embeddings[0] if embeddings else []
 
+
+# NEW PYDANTIC MODEL FOR VALIDATION
+class WorkflowUpdateParams(BaseModel):
+    """
+    Pydantic model for validating parameters intended for workflow state or lead updates.
+    Ensures strict field types and prevents prompt injection or hallucinated schema parameters.
+    """
+    status: Optional[str] = Field(None, max_length=50, description="Current status of the workflow or lead.")
+    stage: Optional[str] = Field(None, max_length=50, description="Current stage in the sales or support pipeline.")
+    notes: Optional[str] = Field(None, max_length=1000, description="Additional notes or comments for the workflow/lead.")
+    lead_name: Optional[str] = Field(None, max_length=100, description="Name of the lead.")
+    lead_email: Optional[str] = Field(None, pattern=r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", description="Email address of the lead.")
+    lead_phone: Optional[str] = Field(None, pattern=r"^\+?[0-9\s\-()]{7,20}$", description="Phone number of the lead.")
+    # Add other specific fields as needed based on the actual database schema
+    # By default, Pydantic models are strict and will raise an error for unknown fields.
+
+# NEW HELPER FUNCTION FOR VALIDATION
+def _validate_workflow_update_params(fc_args: Dict[str, Any], action_name: str) -> Dict[str, Any]:
+    """
+    Validates function call arguments against WorkflowUpdateParams model
+    if the action is related to workflow or lead updates.
+    Returns validated parameters (as a dict) or an empty dict if validation fails.
+    """
+    # Define which action names require this specific validation
+    if action_name in ["update_workflow_state", "create_lead", "update_lead", "set_lead_status"]:
+        try:
+            # Attempt to validate the raw fc_args from the LLM
+            validated_params = WorkflowUpdateParams(**fc_args)
+            logger.info(f"Pydantic validation successful for action '{action_name}'.")
+            # Return the validated data as a dictionary, excluding fields that were not set
+            return validated_params.dict(exclude_unset=True)
+        except ValidationError as e:
+            logger.error(f"Pydantic validation failed for action '{action_name}' with args {fc_args}: {e}")
+            # If validation fails, return an empty dictionary to prevent invalid data
+            # from being passed to the database update logic. This prevents corruption.
+            return {}
+    return fc_args # For other actions, return the original arguments unchanged
 
 
 async def get_rag_response(
@@ -642,10 +683,16 @@ USER QUESTION:
                             action_triggered = fc.name
                             fc_args = dict(fc.args) if fc.args else {}
                             
+                            # --- START ADDED VALIDATION LOGIC ---
+                            # Apply Pydantic validation to fc_args before passing to execute_action
+                            # This acts as the "deterministic validation gate" for database writes.
+                            fc_args = _validate_workflow_update_params(fc_args, action_triggered)
+                            # --- END ADDED VALIDATION LOGIC ---
+
                             # Execute isolated native logic bound mapping
                             action_result = await execute_action(
                                 action_type=action_triggered,
-                                parameters=fc_args,
+                                parameters=fc_args, # Now fc_args are validated or empty if invalid
                                 bot_id=bot_id,
                                 bot_actions=db_actions,
                                 db=db,
