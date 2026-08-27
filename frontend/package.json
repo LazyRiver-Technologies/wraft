@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "build:worker": "npx @cloudflare/next-on-pages --project-type worker",
+    "build:worker": "npx @cloudflare/next-on-pages",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
