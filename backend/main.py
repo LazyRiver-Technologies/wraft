@@ -13,24 +13,30 @@ from services.intelligence import init_topic_embeddings
 from crons import run_daily_jobs, run_weekly_jobs, recover_crashed_jobs
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_limiter import FastAPILimiter
 
 from routers import auth, bots, sources, chat, webhook, analytics, billing, qa, leads, usage, admin, onboarding, profiles, setup
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # On startup: initialize connection hooks natively
     await init_redis()
     redis_conn = await get_redis()
-    FastAPICache.init(RedisBackend(redis_conn), prefix="fastapi-cache")
-    await FastAPILimiter.init(redis_conn)
+    if redis_conn is not None:
+        try:
+            FastAPICache.init(RedisBackend(redis_conn), prefix="fastapi-cache")
+            await FastAPILimiter.init(redis_conn)
+            await recover_crashed_jobs(redis_conn)
+            asyncio.create_task(run_daily_jobs(redis_conn))
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to initialize Redis cache/limiter: {e}")
+            FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+    else:
+        logging.getLogger(__name__).warning("Redis unavailable — falling back to InMemoryBackend for FastAPICache.")
+        FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
     
     # Supabase auto-recovery hook + Pre-computation embeddings loader
     await init_topic_embeddings()
-    await recover_crashed_jobs(redis_conn)
-    
-    # Deploy lightweight local asynchronous intelligence routines
-    asyncio.create_task(run_daily_jobs(redis_conn))
     asyncio.create_task(run_weekly_jobs())
     
     yield
