@@ -41,3 +41,28 @@ DEBUG: Executing bot ownership check with bot_id=af1f9f8e-b02c-408a-982b-4894763
 DEBUG: Executing profiles update with user.id=02ac3d27-25e1-4bf5-9226-117aa13da5f8
 DEBUG: Executing playground_shares insert with bot_id=af1f9f8e-b02c-408a-982b-48947631c8ed
 DEBUG: Executing notification_settings select with bot_id=af1f9f8e-b02c-408a-982b-48947631c8ed
+Traceback (most recent call last):
+  File "/Users/siddhanthsadashivraikar/Desktop/wraft/backend/routers/onboarding.py", line 162, in setup_workspace
+    await db.table("bot_settings").update({
+  File "/Users/siddhanthsadashivraikar/Desktop/wraft/backend/venv/lib/python3.11/site-packages/postgrest/_async/request_builder.py", line 78, in execute
+    raise APIError(r.json())
+postgrest.exceptions.APIError: {'code': '22P02', 'details': None, 'hint': None, 'message': 'invalid input value for enum embedding_provider: "google"'}
+
+Traceback (most recent call last):
+  File "/Users/siddhanthsadashivraikar/Desktop/wraft/backend/routers/onboarding.py", line 162, in setup_workspace
+    await db.table("bot_settings").update({
+  File "/Users/siddhanthsadashivraikar/Desktop/wraft/backend/venv/lib/python3.11/site-packages/postgrest/_async/request_builder.py", line 78, in execute
+    raise APIError(r.json())
+postgrest.exceptions.APIError: {'code': '22P02', 'details': None, 'hint': None, 'message': 'invalid input value for enum embedding_provider: "google"'}
+
+Traceback (most recent call last):
+  File "/Users/siddhanthsadashivraikar/Desktop/wraft/backend/routers/onboarding.py", line 162, in setup_workspace
+    await db.table("bot_settings").update({
+  File "/Users/siddhanthsadashivraikar/Desktop/wraft/backend/venv/lib/python3.11/site-packages/postgrest/_async/request_builder.py", line 78, in execute
+    raise APIError(r.json())
+postgrest.exceptions.APIError: {'code': '22P02', 'details': None, 'hint': None, 'message': 'invalid input value for enum embedding_provider: "google"'}
+
+DEBUG: Executing bot ownership check with bot_id=9c1a7316-8d98-49cf-aa5c-4a10cdec000f, user.id=71319095-c7ad-45c6-9f3c-0805085b80ae
+DEBUG: Executing profiles update with user.id=71319095-c7ad-45c6-9f3c-0805085b80ae
+DEBUG: Executing playground_shares insert with bot_id=9c1a7316-8d98-49cf-aa5c-4a10cdec000f
+DEBUG: Executing notification_settings select with bot_id=9c1a7316-8d98-49cf-aa5c-4a10cdec000f

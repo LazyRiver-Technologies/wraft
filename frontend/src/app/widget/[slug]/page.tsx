@@ -29,7 +29,7 @@ export default function WidgetApp() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
         const res = await fetch(`${apiBase}/api/v1/chat/${slug}/appearance`)
         if (res.ok) {
            const data = await res.json()
@@ -70,7 +70,7 @@ export default function WidgetApp() {
     setTyping(true)
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
       const res = await fetch(`${apiBase}/api/v1/chat/${slug}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

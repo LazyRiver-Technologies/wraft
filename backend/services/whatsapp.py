@@ -199,7 +199,8 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
             channel="whatsapp",
             db=db,
             redis=redis_client,
-            background_tasks=inline_bg_tasks
+            background_tasks=inline_bg_tasks,
+            conversation_id=conversation_id
         )
         
         bot_reply = rag_result["response"]
