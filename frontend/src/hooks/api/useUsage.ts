@@ -18,7 +18,7 @@ export function useUsage() {
   return useQuery<UsageData>({
     queryKey: ['usage', 'me', user?.id],
     queryFn: async (): Promise<UsageData> => {
-      return fetchApi('/usage/me')
+      return fetchApi('/api/v1/usage/me')
     }
   })
 }

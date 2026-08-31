@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel, Field
 from typing import Dict, Any
 
@@ -9,6 +9,7 @@ from services.chat_service import ChatService
 
 from config import settings
 from fastapi_limiter.depends import RateLimiter
+from fastapi_limiter import FastAPILimiter
 
 router = APIRouter()
 
@@ -17,7 +18,12 @@ class ChatRequest(BaseModel):
     session_id: str
     channel: str = Field(default="web", pattern="^(web|whatsapp)$")
 
-@router.post("/{bot_slug}", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
+async def rate_limit_if_ready(request: Request):
+    if getattr(FastAPILimiter, "redis", None) is not None:
+        limiter = RateLimiter(times=10, seconds=60)
+        return await limiter(request)
+
+@router.post("/{bot_slug}", dependencies=[Depends(rate_limit_if_ready)])
 async def send_chat_message(bot_slug: str, req: ChatRequest, background_tasks: BackgroundTasks, db=Depends(get_db), redis=Depends(get_redis)):
     repo = ChatRepository(db)
     service = ChatService(repo, db, redis)

@@ -24,7 +24,7 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
     setup_genai()
     
     # Using specific embedding model universally matched to Google Gemini Developer Keys
-    model = "models/text-embedding-004"
+    model = "models/gemini-embedding-2"
     batch_size = 100
     all_embeddings = []
 
