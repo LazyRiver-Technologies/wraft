@@ -376,7 +376,7 @@ async def check_feature_flag(
 async def increment_usage(owner_id: str, bot_id: str, tokens: int, channel: str, db) -> None:
     try:
         # We need an RPC to handle this atomically, similar to current increment logic
-        await db.rpc("increment_usage_metrics", {
+        await db.rpc("increment_usage", {
             "p_owner_id": owner_id,
             "p_bot_id": bot_id,
             "p_tokens": tokens,

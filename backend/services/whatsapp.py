@@ -127,7 +127,7 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
         inline_bg_tasks = InlineBackgroundTasks()
 
         # Fetch Bot Configurations
-        bot_res = await db.table("bots").select("is_active, owner_id, bot_settings(*), whatsapp_configs(*)").eq("id", bot_id).single().execute()
+        bot_res = await db.table("bots").select("is_active, owner_id, bot_settings(*), whatsapp_configs(*)").eq("id", bot_id).maybe_single().execute()
         
         if not bot_res.data:
             return
@@ -139,7 +139,7 @@ async def process_whatsapp_job(bot_slug: str, bot_id: str, session_id: str, mess
         
         # 1.1 Check Feature Flag
         # To avoid extra DB calls, we could pass plan from the profile but here we need it
-        profile_res = await db.table("profiles").select("plans!inner(name, wa_notifications)").eq("id", owner_id).single().execute()
+        profile_res = await db.table("profiles").select("plans!inner(name, wa_notifications)").eq("id", owner_id).maybe_single().execute()
         plan = profile_res.data.get("plans", {}) if profile_res.data else {}
         plan_name = plan.get("name", "trial")
         if not plan.get("wa_notifications", False):

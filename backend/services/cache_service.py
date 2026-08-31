@@ -29,7 +29,7 @@ async def get_bot_settings_cached(bot_id: str, db, redis) -> Dict[str, Any]:
     
     # 3. Try DB
     try:
-        res = await db.table("bot_settings").select("*").eq("bot_id", bot_id).single().execute()
+        res = await db.table("bot_settings").select("*").eq("bot_id", bot_id).maybe_single().execute()
         settings = res.data if res.data else {}
         
         # Save to Local RAM
@@ -106,7 +106,7 @@ async def get_user_details_cached(user_id: str, db, redis) -> Dict[str, Any]:
         if cached:
             return json.loads(cached)
 
-    profile_res = await db.table("profiles").select("*, plans!inner(*)").eq("id", user_id).single().execute()
+    profile_res = await db.table("profiles").select("*, plans!inner(*)").eq("id", user_id).maybe_single().execute()
     if not profile_res.data:
         return {}
         

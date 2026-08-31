@@ -29,7 +29,7 @@ export default function SharedPlaygroundPage() {
   useEffect(() => {
     const fetchSharedContext = async () => {
       try {
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+        const apiBase = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '')
         const res = await fetch(`${apiBase}/api/v1/bots/shared/${token}`)
         if (!res.ok) {
            setErrorStatus(res.status)
@@ -69,7 +69,7 @@ export default function SharedPlaygroundPage() {
     setTyping(true)
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+      const apiBase = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '')
       const res = await fetch(`${apiBase}/api/v1/chat/${botData.slug}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

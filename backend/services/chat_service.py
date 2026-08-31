@@ -81,8 +81,7 @@ class ChatService:
             db=self.db,
             redis=self.redis,
             bot_name=bot_name,
-            background_tasks=background_tasks,
-            conversation_id=conversation_id
+            background_tasks=background_tasks
         )
 
         # 6. Save Messages

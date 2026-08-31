@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     
     # Supabase auto-recovery hook + Pre-computation embeddings loader
     await init_topic_embeddings()
-    asyncio.create_task(run_weekly_jobs())
+    asyncio.create_task(run_weekly_jobs(redis_conn))
     
     yield
     

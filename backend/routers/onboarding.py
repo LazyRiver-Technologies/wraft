@@ -91,7 +91,7 @@ Return ONLY valid JSON, no markdown, no explanation:
     
     try:
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-3.7-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response = await asyncio.to_thread(model.generate_content, prompt)
         text = response.text.strip()
         # Clean up possible markdown wrappers

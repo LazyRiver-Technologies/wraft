@@ -16,6 +16,36 @@ from cachetools import TTLCache
 logger = logging.getLogger(__name__)
 
 # Cache up to 1000 bots' QA pairs for 5 minutes to prevent network saturation
+import math
+
+def cosine_similarity(v1, v2):
+    dot_product = sum(a * b for a, b in zip(v1, v2))
+    norm_v1 = math.sqrt(sum(a * a for a in v1))
+    norm_v2 = math.sqrt(sum(b * b for b in v2))
+    if norm_v1 == 0 or norm_v2 == 0:
+        return 0.0
+    return dot_product / (norm_v1 * norm_v2)
+
+async def python_match_chunks(db, bot_id: str, embedding_dim: int, question_embedding: list, match_count: int):
+    res = await db.table(f"document_chunks_{embedding_dim}").select("id, content, embedding").eq("bot_id", bot_id).execute()
+    chunks = res.data or []
+    scored_chunks = []
+    for chunk in chunks:
+        if not chunk.get("embedding"):
+            continue
+        emb = chunk["embedding"]
+        if isinstance(emb, str):
+            import json
+            emb = json.loads(emb)
+        sim = cosine_similarity(question_embedding, emb)
+        scored_chunks.append({
+            "id": chunk["id"],
+            "content": chunk["content"],
+            "similarity": sim
+        })
+    scored_chunks.sort(key=lambda x: x["similarity"], reverse=True)
+    return scored_chunks[:match_count]
+
 qa_cache: TTLCache = TTLCache(maxsize=1000, ttl=300)
 # --- GUARDRAIL PATTERNS ---
 
@@ -91,13 +121,19 @@ async def is_off_topic(
             "p_query_text": question,
             "p_bot_id": bot_id,
             "p_match_count": 1,
-            "p_fts_config": "english"
+            "p_fts": "english"
         }).execute()
+        chunks_data = chunks.data
+    except Exception as e:
+        if "22000" in str(e) or "dimensions" in str(e) or "match_chunks" in str(e):
+            chunks_data = await python_match_chunks(db, bot_id, embedding_dim, question_embedding, 1)
+        else:
+            raise e
         
-        if not chunks.data:
-            return True
-        
-        chunk = chunks.data[0]
+    if not chunks_data:
+        return True
+    
+    chunk = chunks_data[0]
         
         # Database might return 'similarity' (cosine) or 'score' (RRF hybrid search)
         # Hybrid search returns BOTH! We must check score first if it's > 0.
@@ -214,8 +250,9 @@ Return ONLY the rewritten question. No explanation."""
 
     try:
         import google.generativeai as genai
+        genai.configure(api_key=settings.GEMINI_API_KEY)
         model = genai.GenerativeModel(
-            model_name="gemini-3.7-flash",
+            model_name="gemini-2.5-flash",
             generation_config=genai.GenerationConfig(
                 temperature=0,
                 max_output_tokens=60,  # very short output
@@ -465,11 +502,18 @@ async def get_rag_response(
         "p_query_text": question,
         "p_bot_id": bot_id,
         "p_match_count": match_count,
-        "p_fts_config": bot_settings.get("fts_config", "english")
+        "p_fts": bot_settings.get("fts_config", "english")
     }
     
-    match_res = await db.rpc(f"match_chunks_{embedding_dim}", rpc_params).execute()
-    chunks = match_res.data or []
+    try:
+        match_res = await db.rpc(f"match_chunks_{embedding_dim}", rpc_params).execute()
+        chunks = match_res.data or []
+    except Exception as e:
+        if "22000" in str(e) or "dimensions" in str(e) or "match_chunks" in str(e):
+            logger.warning(f"RPC match_chunks_{embedding_dim} failed. Falling back to Python matching.")
+            chunks = await python_match_chunks(db, bot_id, embedding_dim, question_embedding, match_count)
+        else:
+            raise e
     
     max_similarity = 0.0
     is_rrf = False
@@ -574,7 +618,7 @@ USER QUESTION:
 
     # 7. Call LLM
 
-    selected_model = bot_settings.get("model", "gemini-3.7-flash")
+    selected_model = bot_settings.get("model", "gemini-2.5-flash")
 
     try:
         if selected_model == "llama-3.1-8b-instant":
@@ -599,13 +643,13 @@ USER QUESTION:
                 
                 # Dynamically assign native tools constraints if mapping exists
                 generation_provider = bot_settings.get("generation_provider", "google")
-                generation_model = bot_settings.get("generation_model", "gemini-3.7-flash")
+                generation_model = bot_settings.get("generation_model", "gemini-2.5-flash")
                 
                 # Force fallback if needed
                 if generation_model == "gpt-4o-mini":
-                    generation_model = "gemini-3.7-flash"
+                    generation_model = "gemini-2.5-flash"
                 elif not generation_model.startswith("gemini"):
-                    generation_model = "gemini-3.7-flash"
+                    generation_model = "gemini-2.5-flash"
 
                 model_params = {
                     "model_name": generation_model,

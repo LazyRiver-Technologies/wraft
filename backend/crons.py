@@ -126,7 +126,7 @@ async def run_daily_jobs(redis_client):
         except Exception as e:
             logger.error(f"Intelligence cron fatal loop drop on daily: {e}")
 
-async def run_weekly_jobs():
+async def run_weekly_jobs(redis_client=None):
     """Weekly offline suggestions clustering mapped to Monday 3:00 AM IST."""
     db = await get_db()
     ist_offset = timezone(timedelta(hours=5, minutes=30))
@@ -147,7 +147,7 @@ async def run_weekly_jobs():
             async def bounded_compute(bot_id):
                 async with sem:
                     try:
-                        await compute_suggestions(bot_id, db, redis)
+                        await compute_suggestions(bot_id, db, redis_client)
                     except Exception as e:
                         logger.error(f"Failed to compute suggestions for {bot_id}: {e}")
                         

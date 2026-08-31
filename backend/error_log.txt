@@ -70,3 +70,14 @@ DEBUG: Executing bot ownership check with bot_id=8491827d-6f3c-4a3b-a9ef-601b16d
 DEBUG: Executing profiles update with user.id=09005f6b-883a-414a-8388-7a3d8ab7a80b
 DEBUG: Executing playground_shares insert with bot_id=8491827d-6f3c-4a3b-a9ef-601b16d93d59
 DEBUG: Executing notification_settings select with bot_id=8491827d-6f3c-4a3b-a9ef-601b16d93d59
+Traceback (most recent call last):
+  File "/Users/siddhanthsadashivraikar/Desktop/wraft/backend/routers/onboarding.py", line 162, in setup_workspace
+    await db.table("bot_settings").update({
+  File "/Users/siddhanthsadashivraikar/Desktop/wraft/backend/venv/lib/python3.11/site-packages/postgrest/_async/request_builder.py", line 78, in execute
+    raise APIError(r.json())
+postgrest.exceptions.APIError: {'code': '23503', 'details': 'Key (embedding_provider, embedding_model)=(gemini, gemini-embedding-2) is not present in table "embedding_models".', 'hint': None, 'message': 'insert or update on table "bot_settings" violates foreign key constraint "bot_settings_embedding_provider_embedding_model_fkey"'}
+
+DEBUG: Executing bot ownership check with bot_id=6a1d5aee-9f64-44d1-829a-c55122f6e037, user.id=f0722773-9319-477b-87a4-e7644ab5ad52
+DEBUG: Executing profiles update with user.id=f0722773-9319-477b-87a4-e7644ab5ad52
+DEBUG: Executing playground_shares insert with bot_id=6a1d5aee-9f64-44d1-829a-c55122f6e037
+DEBUG: Executing notification_settings select with bot_id=6a1d5aee-9f64-44d1-829a-c55122f6e037

@@ -370,3 +370,5 @@ To order groceries from Gojocart, you can:
 Once you're on their platform, you should be able to browse for groceries and place an order.
 
 Is there anything else I can help you with regarding Gojocart?
+GUARDRAIL 4: max_similarity=0.773723546119305, threshold=0.45, is_rrf=False
+LLM Gemini OUTPUT: Gojocart is your neighborhood's fastest delivery service. They bring everything you need right to your doorstep in minutes, with orders delivered within 10-60 minutes. They focus on fast, reliable, safe, and secure delivery.

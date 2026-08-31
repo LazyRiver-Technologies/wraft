@@ -104,7 +104,7 @@ async def execute_action(
         logger.error(f"Failed to bump action trigger_count: {e}")
     
     if action_type == "notify_owner":
-        notif_res = await db.table("notification_settings").select("*").eq("bot_id", bot_id).single().execute()
+        notif_res = await db.table("notification_settings").select("*").eq("bot_id", bot_id).maybe_single().execute()
         if notif_res and notif_res.data:
             await send_owner_notification(
                 owner_whatsapp=notif_res.data.get("owner_whatsapp"),

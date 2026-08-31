@@ -170,7 +170,7 @@ async def update_bot(bot_id: str, body: BotUpdate, user=Depends(get_current_user
 @router.get("/{bot_id}/whatsapp-status")
 async def get_whatsapp_status(bot_id: str, user=Depends(get_current_user), db=Depends(get_db)):
     await verify_bot_ownership(bot_id, user, db)
-    res = await db.table("whatsapp_configs").select("is_connected").eq("bot_id", bot_id).single().execute()
+    res = await db.table("whatsapp_configs").select("is_connected").eq("bot_id", bot_id).maybe_single().execute()
     if not res.data:
         return {"is_connected": False}
     return {"is_connected": res.data.get("is_connected", False)}
@@ -329,7 +329,7 @@ async def revoke_api_key(bot_id: str, key_id: str, user=Depends(get_current_user
     return None
 
 ALLOWED_MODELS = [
-    'gemini-3.7-flash',   # primary — recommended
+    'gemini-2.5-flash',   # primary — recommended
     'llama-3.1-8b-instant',    # groq direct — not recommended for Indian languages
 ]
 
@@ -524,7 +524,7 @@ async def test_bot_notifications(bot_id: str, user=Depends(get_current_user), db
     """
     b_res = await verify_bot_ownership(bot_id, user, db)
     
-    notif_res = await db.table("notification_settings").select("*").eq("bot_id", bot_id).single().execute()
+    notif_res = await db.table("notification_settings").select("*").eq("bot_id", bot_id).maybe_single().execute()
     if not notif_res.data or not notif_res.data.get("owner_whatsapp"):
         raise HTTPException(status_code=400, detail="Owner WhatsApp number is safely missing from notification settings")
         
