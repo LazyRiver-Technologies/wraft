@@ -20,7 +20,7 @@ async def main():
     res = await get_rag_response(
         question="hello",
         bot_id="123",
-        bot_settings={"model": "gemini-2.5-flash-lite"},
+        bot_settings={"model": "gemini-3.7-flash"},
         conversation_history=[],
         owner_id="owner",
         channel="web",

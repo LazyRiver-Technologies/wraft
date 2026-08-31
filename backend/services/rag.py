@@ -189,7 +189,7 @@ async def rewrite_query(
     Makes ambiguous questions self-contained using 
     conversation history. 
     Only called when needs_rewrite() returns True.
-    Uses gemini-2.5-flash-lite with max_tokens=50 
+    Uses gemini-3.7-flash with max_tokens=50 
     — very cheap, very fast.
     """
     if not needs_rewrite(question, history):
@@ -215,7 +215,7 @@ Return ONLY the rewritten question. No explanation."""
     try:
         import google.generativeai as genai
         model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash-lite",
+            model_name="gemini-3.7-flash",
             generation_config=genai.GenerationConfig(
                 temperature=0,
                 max_output_tokens=60,  # very short output
@@ -574,7 +574,7 @@ USER QUESTION:
 
     # 7. Call LLM
 
-    selected_model = bot_settings.get("model", "gemini-2.5-flash-lite")
+    selected_model = bot_settings.get("model", "gemini-3.7-flash")
 
     try:
         if selected_model == "llama-3.1-8b-instant":
@@ -599,13 +599,13 @@ USER QUESTION:
                 
                 # Dynamically assign native tools constraints if mapping exists
                 generation_provider = bot_settings.get("generation_provider", "google")
-                generation_model = bot_settings.get("generation_model", "gemini-2.5-flash-lite")
-
-                if generation_provider != "google":
-                    logger.warning(f"Provider {generation_provider} is not fully supported yet. Falling back to google.")
-                    generation_model = "gemini-2.5-flash-lite"
+                generation_model = bot_settings.get("generation_model", "gemini-3.7-flash")
+                
+                # Force fallback if needed
+                if generation_model == "gpt-4o-mini":
+                    generation_model = "gemini-3.7-flash"
                 elif not generation_model.startswith("gemini"):
-                    generation_model = "gemini-2.5-flash-lite"
+                    generation_model = "gemini-3.7-flash"
 
                 model_params = {
                     "model_name": generation_model,

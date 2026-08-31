@@ -4,6 +4,7 @@ import * as React from "react"
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query"
 import { createClient } from "@/utils/supabase/client"
+import { fetchApi } from "@/lib/api"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -62,16 +63,10 @@ export default function SuggestionsPage(props: { params: any }) {
 
   const addQaMutation = useMutation({
     mutationFn: async ({ question, answer }: { question: string; answer: string }) => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("qa_pairs")
-        .insert({
-          bot_id: botId,
-          question,
-          answer
-        })
-      if (error) throw error
-      return data
+      return fetchApi(`/api/v1/bots/${botId}/qa`, {
+        method: "POST",
+        body: JSON.stringify({ question, answer })
+      })
     },
     onSuccess: async () => {
       if (activeSuggestion) {

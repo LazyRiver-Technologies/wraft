@@ -41,10 +41,10 @@ export default function BotSettingsPage(props: { params: any }) {
 
   const [aiConfig, setAiConfig] = useState({
     system_prompt: "You are a helpful customer support agent. Always answer politely and use the provided context to answer questions. If you do not know the answer, explicitly state that you don't know.",
-    generation_model: "gemini-2.5-flash-lite",
+    generation_model: "gemini-3.7-flash",
     generation_provider: "google",
     embedding_provider: "gemini",
-    embedding_model: "text-embedding-004",
+    embedding_model: "gemini-embedding-2",
     embedding_dim: 768,
     temperature: 0.3,
     search_mode: "hybrid",
@@ -234,7 +234,7 @@ export default function BotSettingsPage(props: { params: any }) {
                       <SelectValue placeholder="Select model" />
                     </SelectTrigger>
                     <SelectContent className="bg-bg-elevated border-border-default">
-                      <SelectItem value="gemini-2.5-flash-lite">Gemini Flash Lite (Fastest)</SelectItem>
+                      <SelectItem value="gemini-3.7-flash">Gemini 3.7 Flash</SelectItem>
                       <SelectItem value="gemini-1.5-pro">Gemini Pro 1.5</SelectItem>
                       <SelectItem value="llama-3.1-8b-instant">Llama 3.1 8B (Groq)</SelectItem>
                     </SelectContent>

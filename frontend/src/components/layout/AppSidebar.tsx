@@ -12,6 +12,7 @@ import {
 import { useStore } from "@/lib/store"
 import { useQuery } from "@tanstack/react-query"
 import { createClient } from "@/utils/supabase/client"
+import { fetchApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function AppSidebar({ mobileOpen, setMobileOpen }: { mobileOpen?: boolean, setMobileOpen?: (b: boolean) => void }) {
@@ -57,9 +58,11 @@ export function AppSidebar({ mobileOpen, setMobileOpen }: { mobileOpen?: boolean
     queryKey: ['whatsapp_status', currentBot?.id],
     queryFn: async () => {
       if (!currentBot) return { is_connected: false }
-      const res = await fetch(`/api/v1/bots/${currentBot.id}/whatsapp-status`)
-      if (!res.ok) return { is_connected: false }
-      return await res.json()
+      try {
+        return await fetchApi(`/api/v1/bots/${currentBot.id}/whatsapp-status`)
+      } catch (err) {
+        return { is_connected: false }
+      }
     },
     enabled: !!currentBot?.id,
     refetchInterval: 10 * 60 * 1000,

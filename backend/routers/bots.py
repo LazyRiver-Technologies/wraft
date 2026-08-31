@@ -329,7 +329,7 @@ async def revoke_api_key(bot_id: str, key_id: str, user=Depends(get_current_user
     return None
 
 ALLOWED_MODELS = [
-    'gemini-2.5-flash-lite',   # primary — recommended
+    'gemini-3.7-flash',   # primary — recommended
     'llama-3.1-8b-instant',    # groq direct — not recommended for Indian languages
 ]
 
