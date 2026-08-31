@@ -116,25 +116,26 @@ async def is_off_topic(
     to anything in the knowledge base.
     """
     try:
-        chunks = await db.rpc(f"match_chunks_{embedding_dim}", {
-            "p_query_embedding": question_embedding,
-            "p_query_text": question,
-            "p_bot_id": bot_id,
-            "p_match_count": 1,
-            "p_fts": "english"
-        }).execute()
-        chunks_data = chunks.data
-    except Exception as e:
-        if "22000" in str(e) or "dimensions" in str(e) or "match_chunks" in str(e):
-            chunks_data = await python_match_chunks(db, bot_id, embedding_dim, question_embedding, 1)
-        else:
-            raise e
+        try:
+            chunks = await db.rpc(f"match_chunks_{embedding_dim}", {
+                "p_query_embedding": question_embedding,
+                "p_query_text": question,
+                "p_bot_id": bot_id,
+                "p_match_count": 1,
+                "p_fts": "english"
+            }).execute()
+            chunks_data = chunks.data
+        except Exception as e:
+            if "22000" in str(e) or "dimensions" in str(e) or "match_chunks" in str(e):
+                chunks_data = await python_match_chunks(db, bot_id, embedding_dim, question_embedding, 1)
+            else:
+                raise e
+            
+        if not chunks_data:
+            return True
         
-    if not chunks_data:
-        return True
-    
-    chunk = chunks_data[0]
-        
+        chunk = chunks_data[0]
+            
         # Database might return 'similarity' (cosine) or 'score' (RRF hybrid search)
         # Hybrid search returns BOTH! We must check score first if it's > 0.
         score = chunk.get("score", 0.0)
