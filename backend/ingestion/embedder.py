@@ -59,15 +59,20 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
                 if attempt == max_retries - 1:
                     raise EmbeddingError(f"Failed to embed chunks after {max_retries} attempts. Last error: {err_str}")
                 
-                sleep_time = backoff_sec
+                # Switch model immediately on 429
                 if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+                    model = "models/gemini-embedding-2" if model == "models/gemini-embedding-001" else "models/gemini-embedding-001"
+                    if attempt == 0:
+                        await asyncio.sleep(0.5)
+                        continue
+                        
                     delay_match = re.search(r"retry in (\d+(?:\.\d+)?)s", err_str, re.IGNORECASE)
                     if delay_match:
                         sleep_time = max(float(delay_match.group(1)) + 1.5, 6.0)
                     else:
                         sleep_time = 14.0
-                    # Switch model if quota hit on one
-                    model = "models/gemini-embedding-2" if model == "models/gemini-embedding-001" else "models/gemini-embedding-001"
+                else:
+                    sleep_time = backoff_sec
                     
                 await asyncio.sleep(sleep_time)
                 backoff_sec = min(backoff_sec * 2, 30)
@@ -75,3 +80,49 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
         all_embeddings.extend(batch_embeddings)
 
     return all_embeddings
+
+
+async def embed_query(text: str) -> List[float]:
+    """
+    Ultra-low latency single-query embedding designed specifically for user queries.
+    Uses task_type="retrieval_query" and attempts immediate zero-wait model failover.
+    """
+    if not text or not text.strip():
+        return []
+        
+    setup_genai()
+    
+    models = ["models/gemini-embedding-2", "models/gemini-embedding-001"]
+    for m in models:
+        try:
+            response = await asyncio.to_thread(
+                genai.embed_content,
+                model=m,
+                content=text.strip(),
+                task_type="retrieval_query",
+                output_dimensionality=768
+            )
+            emb = response.get('embedding')
+            if emb:
+                return emb
+        except Exception as e:
+            logger.warning(f"embed_query failed on {m}: {e}. Trying alternate model immediately...")
+            
+    # Brief fallback retry
+    await asyncio.sleep(1.0)
+    for m in reversed(models):
+        try:
+            response = await asyncio.to_thread(
+                genai.embed_content,
+                model=m,
+                content=text.strip(),
+                task_type="retrieval_query",
+                output_dimensionality=768
+            )
+            emb = response.get('embedding')
+            if emb:
+                return emb
+        except Exception:
+            pass
+            
+    return []

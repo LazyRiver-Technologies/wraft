@@ -194,7 +194,7 @@ class ChatService:
     def _dispatch_background_triggers(self, message: str, rag_result: dict, bot_id: str, bot_name: str, bot_settings: dict, owner_whatsapp: str, background_tasks):
         """Dispatch notifications and async triggers based on responses safely isolated from main block"""
         
-        if not owner_whatsapp:
+        if not owner_whatsapp or not background_tasks:
             return
         
         # Determine sentiment or semantic guardrail trigger

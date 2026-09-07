@@ -4,7 +4,7 @@ from services.admin_events import publish_admin_event
 import google.generativeai as genai
 import google.api_core.exceptions
 from config import settings
-from ingestion.embedder import embed_chunks
+from ingestion.embedder import embed_chunks, embed_query
 from services.limits import check_message_limit, increment_usage, get_profile_with_plan
 from services.cache import get_cached_response, store_cached_response
 from services.actions import get_action_tools, execute_action
@@ -328,9 +328,8 @@ async def check_qa_pairs(question: str, bot_id: str, bot_settings: dict, db) -> 
     return None
 
 async def embed_single(text: str) -> list:
-    """Helper to embed a single string and return the first element."""
-    embeddings = await embed_chunks([text])
-    return embeddings[0] if embeddings else []
+    """Helper to embed a single query string with low-latency zero-wait fallback."""
+    return await embed_query(text)
 
 
 
@@ -649,32 +648,48 @@ USER QUESTION:
             try:
                 genai.configure(api_key=settings.GEMINI_API_KEY)
                 
-                # Dynamically assign native tools constraints if mapping exists
-                generation_provider = bot_settings.get("generation_provider", "google")
-                generation_model = bot_settings.get("generation_model", "gemini-2.5-flash")
+                requested_model = bot_settings.get("generation_model") or "gemini-flash-latest"
+                if not requested_model or not isinstance(requested_model, str) or not requested_model.startswith("gemini"):
+                    requested_model = "gemini-flash-latest"
                 
-                # Robust model mapping: If any non-gemini model is specified (e.g. gpt-4o-mini), safely default to gemini-2.5-flash
-                if not generation_model or not isinstance(generation_model, str) or not generation_model.startswith("gemini"):
-                    generation_model = "gemini-2.5-flash"
+                gemini_model_candidates = [
+                    requested_model,
+                    "gemini-flash-latest",
+                    "gemini-2.5-flash-lite",
+                    "gemini-3.5-flash",
+                    "gemini-3.6-flash"
+                ]
+                seen_models = set()
+                gemini_models = []
+                for m in gemini_model_candidates:
+                    if m not in seen_models:
+                        seen_models.add(m)
+                        gemini_models.append(m)
 
-                model_params = {
-                    "model_name": generation_model,
-                    "generation_config": genai.GenerationConfig(
-                        temperature=temperature,
-                        max_output_tokens=1024,
-                    )
-                }
-                if tools:
-                    from google.generativeai.types import content_types
-                    # Ensure schema is dynamically passed to underlying API
-                    model_params["tools"] = tools
+                response = None
+                last_gemini_error = None
+                for current_model_name in gemini_models:
+                    try:
+                        model_params = {
+                            "model_name": current_model_name,
+                            "generation_config": genai.GenerationConfig(
+                                temperature=temperature,
+                                max_output_tokens=1024,
+                            )
+                        }
+                        if tools:
+                            model_params["tools"] = tools
 
-                model = genai.GenerativeModel(**model_params)
-                
-                response = await asyncio.to_thread(
-                    model.generate_content,
-                    full_prompt
-                )
+                        model = genai.GenerativeModel(**model_params)
+                        response = await asyncio.to_thread(model.generate_content, full_prompt)
+                        break
+                    except Exception as g_err:
+                        last_gemini_error = g_err
+                        logger.warning(f"Gemini model {current_model_name} failed: {g_err}. Trying next candidate...")
+                        continue
+
+                if response is None:
+                    raise last_gemini_error or Exception("All Gemini models failed")
                 
                 tokens_used = 0
                 if hasattr(response, "usage_metadata") and response.usage_metadata:

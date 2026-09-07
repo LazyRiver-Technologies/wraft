@@ -33,7 +33,8 @@ export function useChat(botSlug?: string) {
           message: text,
           session_id: "preview_session",
           preview_mode: true
-        })
+        }),
+        timeout: 60000
       })
 
       // Assuming backend returns { response: "text", confidence: "high" }

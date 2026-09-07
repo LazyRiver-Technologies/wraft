@@ -23,7 +23,7 @@ export class ApiError extends Error {
 }
 
 export async function fetchApi(endpoint: string, options: RequestInit & { timeout?: number } = {}) {
-  const { timeout = 15000, ...fetchOptions } = options;
+  const { timeout = 45000, ...fetchOptions } = options;
   const token = useStore.getState().token
   
   const headers = new Headers(options.headers)
