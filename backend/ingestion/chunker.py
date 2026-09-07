@@ -25,8 +25,16 @@ def chunk_text(raw_text: str, metadata: Optional[Dict] = None, chunk_size: int =
         separators=["\n\n", "\n", " ", ""]
     )
     
-    # Split the raw text into Document objects
-    docs = text_splitter.create_documents([raw_text])
+    import re
+    # Clean noise: markdown images like ![Image 12: ...](http...) -> keep alt text if meaningful
+    cleaned_text = re.sub(r'!\[(?:Image\s*\d*:?\s*)?([^\]]*)\]\([^\)]+\)', r'\1', raw_text)
+    # Remove empty markdown links like [](http...)
+    cleaned_text = re.sub(r'\[\s*\]\([^\)]+\)', '', cleaned_text)
+    # Normalize excessive blank lines
+    cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text).strip()
+
+    # Split the cleaned text into Document objects
+    docs = text_splitter.create_documents([cleaned_text])
     
     # Tiktoken encoder for exact token counting (rather than // 4 heuristic)
     import tiktoken
@@ -38,11 +46,16 @@ def chunk_text(raw_text: str, metadata: Optional[Dict] = None, chunk_size: int =
         if not text_content:
             continue
             
+        # Skip chunks that have almost no actual alphanumeric words (noise filtering)
+        words = re.findall(r'[a-zA-Z0-9]{2,}', text_content)
+        if len(words) < 5:
+            continue
+
         exact_token_count = len(encoder.encode(text_content))
         
         chunks.append(Chunk(
             content=text_content,
-            chunk_index=i,
+            chunk_index=len(chunks),
             token_count=exact_token_count,
             metadata=metadata.copy()
         ))

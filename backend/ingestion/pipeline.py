@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from supabase import AClient
 import redis.asyncio as redis
 
-from ingestion.extractors import extract_pdf, extract_url, extract_sitemap, extract_text
+from ingestion.extractors import extract_pdf, extract_url, extract_website, extract_sitemap, extract_text
 from ingestion.chunker import chunk_text
 from ingestion.embedder import embed_chunks
 from utils.limits import get_strict_plan
@@ -56,8 +56,9 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
             
         elif source_type == "url":
             source_url = source.get("source_url")
-            raw_text, checksum = await extract_url(source_url)
-            extracted_content.append((source_url, raw_text, checksum))
+            # Intelligently crawl website: main page + key subpages (doctors/team, services, contact, etc.)
+            extracted_pages = await extract_website(source_url, max_subpages=8)
+            extracted_content.extend(extracted_pages)
             
         elif source_type == "sitemap":
             source_url = source.get("source_url")
@@ -121,12 +122,18 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
             plan = strict_data["plan"]
             
             if plan.get("max_chunks_per_bot") is not None:
-                # Fetch all existing chunks globally mapped to this specific bot
-                current_chunks_res = await db.table("data_sources").select("chunk_count").eq("bot_id", bot_id).execute()
+                # Fetch existing chunks mapped to this specific bot, excluding the current source being retrained/re-indexed
+                current_chunks_res = await db.table("data_sources").select("chunk_count").eq("bot_id", bot_id).neq("id", source_id).execute()
                 current_total = sum((c.get("chunk_count") or 0) for c in (current_chunks_res.data or []))
                 
-                if current_total + len(all_chunks) > plan["max_chunks_per_bot"]:
-                     raise ValueError(f"Vector Database Limits Exceeded: Cannot map {len(all_chunks)} chunks to vector store. Upgrade plan to increase bot capacity.")
+                max_capacity = plan["max_chunks_per_bot"]
+                remaining_capacity = max(0, max_capacity - current_total)
+                
+                if len(all_chunks) > remaining_capacity:
+                    if remaining_capacity == 0:
+                        raise ValueError("Vector Database Limits Exceeded: Bot has reached max chunk limit. Upgrade plan to increase capacity.")
+                    logger.info(f"Capping extracted chunks from {len(all_chunks)} to {remaining_capacity} to fit within plan limit")
+                    all_chunks = all_chunks[:remaining_capacity]
 
         # 6. Embed all chunks (batched efficiently in embedder.py)
         texts_to_embed = [c.content for c in all_chunks]
@@ -163,7 +170,7 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
                 "source_id": source_id,
                 "content": chunk.content,
                 "embedding": embedding,
-                "chunk_index": chunk.chunk_index,
+                "chunk_index": i,
                 "token_count": chunk.token_count,
                 "metadata": chunk.metadata
             })

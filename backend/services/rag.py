@@ -494,7 +494,7 @@ async def get_rag_response(
 
     # 4. Context Matching
     # Supabase DB function `match_chunks_{dim}`
-    match_count = bot_settings.get("max_chunks", 5)
+    match_count = bot_settings.get("max_chunks") or 8
     search_mode = bot_settings.get("search_mode", "hybrid")
     
     # Passing params strictly matched to defined prompt parameters
@@ -561,7 +561,13 @@ async def get_rag_response(
         }
 
     # 6. Build Prompt
-    system_prompt = bot_settings.get("system_prompt", "You are a helpful assistant.")
+    system_prompt = bot_settings.get("system_prompt")
+    if not system_prompt or not system_prompt.strip():
+        system_prompt = f"""You are a knowledgeable, friendly, and professional AI assistant representing {business_name}.
+Your goal is to provide accurate, helpful, and thorough answers to the user's questions based on the provided CONTEXT.
+- If the user asks about doctors, dentists, staff, leadership, or the team, list and describe all the professionals mentioned in the CONTEXT along with their qualifications and specialties.
+- If the user asks about services, treatments, clinic hours, or contact details, provide clear and detailed answers based on the CONTEXT.
+- Stay polite, concise, and professional."""
     
     context_str = "\n---\n".join([c.get("content", "") for c in chunks])
     

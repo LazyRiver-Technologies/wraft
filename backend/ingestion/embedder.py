@@ -24,20 +24,20 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
     setup_genai()
     
     # Using specific embedding model universally matched to Google Gemini Developer Keys
-    model = "models/gemini-embedding-2"
-    batch_size = 100
+    import re
+    model = "models/gemini-embedding-001"
+    batch_size = 50  # Smaller batch size to stay safely within per-request token/RPM boundaries
     all_embeddings = []
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         
-        max_retries = 3
-        backoff_sec = 2
+        max_retries = 5
+        backoff_sec = 3
         
         batch_embeddings = []
         for attempt in range(max_retries):
             try:
-                import asyncio
                 response = await asyncio.to_thread(
                     genai.embed_content,
                     model=model,
@@ -46,8 +46,6 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
                     output_dimensionality=768
                 )
                 
-                # Check response format. genai.embed_content returns a dict 
-                # e.g., {'embedding': [[...], [...]]} when batched
                 emb_data = response.get('embedding')
                 if not emb_data:
                      raise EmbeddingError("No embedding returned in response")
@@ -56,12 +54,23 @@ async def embed_chunks(texts: List[str]) -> List[List[float]]:
                 break
                 
             except Exception as e:
-                logger.warning(f"Embedding batch attempt {attempt + 1} failed: {e}")
+                err_str = str(e)
+                logger.warning(f"Embedding batch attempt {attempt + 1} failed: {err_str}")
                 if attempt == max_retries - 1:
-                    raise EmbeddingError(f"Failed to embed chunks after {max_retries} attempts. Last error: {str(e)}")
+                    raise EmbeddingError(f"Failed to embed chunks after {max_retries} attempts. Last error: {err_str}")
                 
-                await asyncio.sleep(backoff_sec)
-                backoff_sec *= 2  # Exponential backoff (2, 4 seconds)
+                sleep_time = backoff_sec
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+                    delay_match = re.search(r"retry in (\d+(?:\.\d+)?)s", err_str, re.IGNORECASE)
+                    if delay_match:
+                        sleep_time = max(float(delay_match.group(1)) + 1.5, 6.0)
+                    else:
+                        sleep_time = 14.0
+                    # Switch model if quota hit on one
+                    model = "models/gemini-embedding-2" if model == "models/gemini-embedding-001" else "models/gemini-embedding-001"
+                    
+                await asyncio.sleep(sleep_time)
+                backoff_sec = min(backoff_sec * 2, 30)
 
         all_embeddings.extend(batch_embeddings)
 
