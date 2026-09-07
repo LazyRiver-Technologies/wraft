@@ -21,33 +21,70 @@ export function StepKnowledge({
   onNext 
 }: Props) {
   const [isUploading, setIsUploading] = React.useState(false);
+  const [statusText, setStatusText] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const handleUploadKnowledge = async () => {
     if (!botId) return;
     setIsUploading(true);
+    setStatusText("Uploading knowledge source...");
     setError(null);
     try {
+      let newSource: any = null;
       if (uploadType === 'url') {
         if (!urlInput) throw new Error("Please enter a URL");
-        await fetchApi(`/api/v1/bots/${botId}/sources/url`, { 
+        let formattedUrl = urlInput.trim();
+        if (!/^https?:\/\//i.test(formattedUrl)) {
+          formattedUrl = `https://${formattedUrl}`;
+        }
+        newSource = await fetchApi(`/api/v1/bots/${botId}/sources/url`, { 
           method: 'POST', 
-          body: JSON.stringify({ name: "Website", url: urlInput }) 
+          body: JSON.stringify({ name: "Website", url: formattedUrl }) 
         });
       } else {
         if (!fileInput) throw new Error("Please select a file");
         const fd = new FormData();
         fd.append("file", fileInput);
-        await fetchApi(`/api/v1/bots/${botId}/sources/pdf`, { 
+        newSource = await fetchApi(`/api/v1/bots/${botId}/sources/pdf`, { 
           method: 'POST', 
           body: fd 
         });
       }
-      onNext();
+
+      setStatusText("Extracting content & generating AI vectors...");
+
+      // Poll for completion up to 15 seconds
+      let attempts = 0;
+      const maxAttempts = 10;
+      const interval = setInterval(async () => {
+        attempts++;
+        try {
+          const status = await fetchApi(`/api/v1/onboarding/status/${botId}`);
+          if (status?.has_ready || status?.all_done) {
+            clearInterval(interval);
+            setStatusText("Knowledge base indexed successfully! 🎉");
+            setTimeout(() => {
+              onNext();
+            }, 700);
+            return;
+          }
+        } catch {
+          // Ignore polling errors
+        }
+
+        if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          setStatusText("Indexing in background. Ready to test!");
+          setTimeout(() => {
+            onNext();
+          }, 600);
+        }
+      }, 1500);
+
     } catch (err: any) {
       setError(err.message || "Failed to upload knowledge base");
-    } finally {
       setIsUploading(false);
+      setStatusText(null);
     }
   };
 
@@ -105,7 +142,12 @@ export function StepKnowledge({
           disabled={isUploading || (uploadType === 'url' && !urlInput) || (uploadType === 'pdf' && !fileInput)} 
           className="w-full h-[52px] bg-brand hover:bg-brand-hover text-white rounded-xl font-medium border-none"
         >
-          {isUploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : "Train my Assistant"}
+          {isUploading ? (
+            <span className="flex items-center justify-center gap-2 text-sm">
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              <span>{statusText || "Indexing knowledge base..."}</span>
+            </span>
+          ) : "Train my Assistant"}
         </Button>
         <div onClick={onNext} className="text-xs text-text-tertiary text-center cursor-pointer hover:text-text-primary transition-colors">
           Skip for now →

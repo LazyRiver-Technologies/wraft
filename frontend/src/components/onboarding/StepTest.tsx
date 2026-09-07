@@ -29,12 +29,19 @@ export function StepTest({ botSlug, ownerName, testMessages, setTestMessages, ha
   const [testInput, setTestInput] = React.useState("");
   const [isTyping, setIsTyping] = React.useState(false);
   const testMessagesEndRef = React.useRef<HTMLDivElement>(null);
+  const sessionIdRef = React.useRef<string>("");
+
+  React.useEffect(() => {
+    if (!sessionIdRef.current) {
+      sessionIdRef.current = `onboarding-${Date.now()}`;
+    }
+  }, []);
 
   React.useEffect(() => {
     if (testMessages.length === 0) {
       const t = setTimeout(() => {
-        setTestMessages([{ role: 'bot', text: `Hi! I'm ${ownerName}'s assistant. I'm processing your knowledge base. Ask me anything!` }]);
-      }, 600);
+        setTestMessages([{ role: 'bot', text: `Hi! I'm ${ownerName}'s AI assistant. I've been trained on your knowledge base. Ask me anything!` }]);
+      }, 500);
       return () => clearTimeout(t);
     }
   }, []);
@@ -57,14 +64,18 @@ export function StepTest({ botSlug, ownerName, testMessages, setTestMessages, ha
         method: 'POST',
         body: JSON.stringify({
           message: msg,
-          session_id: 'onboarding-test',
+          session_id: sessionIdRef.current || 'onboarding-test',
           channel: 'web'
         })
       });
       setTestMessages(prev => [...prev, { role: 'bot', text: data.response || "I didn't get that." }]);
       setHasTestedBot(true);
-    } catch (err) {
-      setTestMessages(prev => [...prev, { role: 'bot', text: "Sorry, I'm having trouble connecting right now." }]);
+    } catch (err: any) {
+      console.error("Test chat error:", err);
+      const errMsg = err?.message && !err.message.includes("API Error") 
+        ? err.message 
+        : "I'm experiencing a brief connection issue. Please make sure the backend is reachable.";
+      setTestMessages(prev => [...prev, { role: 'bot', text: errMsg }]);
     } finally {
       setIsTyping(false);
     }

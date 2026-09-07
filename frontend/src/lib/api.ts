@@ -1,7 +1,17 @@
 import { useStore } from './store'
 
-const rawApiBase = process.env.NEXT_PUBLIC_API_URL || ''
-const API_BASE = rawApiBase.replace(/\/+$/, '')
+function getApiBase(): string {
+  const raw = process.env.NEXT_PUBLIC_API_URL || ''
+  const cleaned = raw.replace(/\/+$/, '')
+  
+  if (typeof window !== 'undefined') {
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    if (!isLocal && cleaned.includes('localhost')) {
+      return ''
+    }
+  }
+  return cleaned
+}
 
 export class ApiError extends Error {
   status: number;
@@ -28,8 +38,9 @@ export async function fetchApi(endpoint: string, options: RequestInit & { timeou
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
 
+  const apiBase = getApiBase()
   const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
-  const fullUrl = API_BASE ? `${API_BASE}${formattedEndpoint}` : formattedEndpoint
+  const fullUrl = apiBase ? `${apiBase}${formattedEndpoint}` : formattedEndpoint
 
   try {
     const response = await fetch(fullUrl, {

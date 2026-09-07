@@ -7,7 +7,10 @@ import re
 import secrets
 import random
 import asyncio
+import logging
 from database import get_db
+
+logger = logging.getLogger(__name__)
 from middleware.auth import get_current_user
 from redis_client import get_redis
 from config import settings
@@ -159,12 +162,18 @@ async def setup_workspace(req: SetupRequest, background_tasks: BackgroundTasks, 
         # 6. Update bot_settings system_prompt and embedding model
         sys_prompt_template = SYSTEM_PROMPTS.get(req.business_type, SYSTEM_PROMPTS["other"])
         formatted_sys_prompt = sys_prompt_template.format(name=req.business_name)
-        await db.table("bot_settings").update({
-            "system_prompt": formatted_sys_prompt,
-            "embedding_provider": "gemini",
-            "embedding_model": "gemini-embedding-2",
-            "embedding_dim": 768,
-        }).eq("bot_id", bot_id).execute()
+        try:
+            await db.table("bot_settings").update({
+                "system_prompt": formatted_sys_prompt,
+                "embedding_provider": "gemini",
+                "embedding_model": "gemini-embedding-001",
+                "embedding_dim": 768,
+                "generation_provider": "google",
+                "generation_model": "gemini-2.5-flash",
+                "fallback_message": "I could not find an answer in my knowledge base. Please contact us directly."
+            }).eq("bot_id", bot_id).execute()
+        except Exception as err:
+            logger.warning(f"Failed to update bot_settings during onboarding setup: {err}")
 
         # 7. Update notification_settings
         await db.table("notification_settings").update({
@@ -388,3 +397,34 @@ async def complete_onboarding(req: CompleteRequest, background_tasks: Background
         "playground_url": playground_url,
         "dashboard_url": "/dashboard"
     }
+
+@router.get("/status/{bot_id}")
+async def get_onboarding_status(bot_id: str, user=Depends(get_current_user), db=Depends(get_db)):
+    try:
+        sources_res = await db.table("data_sources").select("id, type, name, status, chunk_count, error_msg").eq("bot_id", bot_id).execute()
+        sources = sources_res.data or []
+        
+        has_sources = len(sources) > 0
+        all_ready = has_sources and all(s.get("status") in ["ready", "failed"] for s in sources)
+        has_ready = any(s.get("status") == "ready" for s in sources)
+        total_chunks = sum((s.get("chunk_count") or 0) for s in sources)
+        
+        return {
+            "bot_id": bot_id,
+            "has_sources": has_sources,
+            "all_done": all_ready,
+            "has_ready": has_ready,
+            "total_chunks": total_chunks,
+            "sources": sources
+        }
+    except Exception as e:
+        logger.error(f"Error fetching onboarding status for bot {bot_id}: {e}")
+        return {
+            "bot_id": bot_id,
+            "has_sources": False,
+            "all_done": False,
+            "has_ready": False,
+            "total_chunks": 0,
+            "sources": []
+        }
+

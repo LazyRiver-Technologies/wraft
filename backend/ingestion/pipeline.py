@@ -135,8 +135,25 @@ async def run_ingestion_pipeline(source_id: str, db: AClient, redis_client: redi
         if len(embeddings) != len(all_chunks):
             raise ValueError(f"Mismatch between number of chunks ({len(all_chunks)}) and embeddings ({len(embeddings)})")
 
-        # 7. Delete any existing document_chunks rows for this source_id
-        await db.table(f"document_chunks_{embedding_dim}").delete().eq("source_id", source_id).execute()
+        actual_dim = len(embeddings[0]) if embeddings else 768
+        if embedding_dim != actual_dim:
+            logger.info(f"Correcting bot {bot_id} embedding_dim from {embedding_dim} to {actual_dim}")
+            embedding_dim = actual_dim
+            try:
+                await db.table("bot_settings").update({
+                    "embedding_dim": actual_dim,
+                    "embedding_provider": "gemini",
+                    "embedding_model": "gemini-embedding-001"
+                }).eq("bot_id", bot_id).execute()
+            except Exception as upd_err:
+                logger.warning(f"Could not update bot_settings embedding_dim: {upd_err}")
+
+        # 7. Delete any existing document_chunks rows for this source_id across potential tables
+        for dim_table in [768, 1536]:
+            try:
+                await db.table(f"document_chunks_{dim_table}").delete().eq("source_id", source_id).execute()
+            except Exception:
+                pass
 
         # 8. Batch insert all chunks
         chunk_rows = []

@@ -529,14 +529,15 @@ async def get_rag_response(
                 is_rrf = True
 
     # GUARDRAIL 4 — Low confidence / hallucination prevention
+    default_fallback = "I couldn't find specific details about that in my knowledge base. Is there anything else about our business I can help you with?"
     if chunks:
-        threshold = 0.015 if is_rrf else 0.45
+        threshold = 0.012 if is_rrf else 0.30
         with open("debug_log.txt", "a", encoding="utf-8") as f:
             f.write(f"GUARDRAIL 4: max_similarity={max_similarity}, threshold={threshold}, is_rrf={is_rrf}\n")
         if max_similarity < threshold:
             with open("debug_log.txt", "a", encoding="utf-8") as f:
                 f.write("GUARDRAIL 4: TRIGGERED!\n")
-            fallback = bot_settings.get("fallback_message", "I couldn't find any relevant information to answer your question.")
+            fallback = bot_settings.get("fallback_message") or default_fallback
             return {
                 "response": fallback,
                 "cache_hit": False,
@@ -549,7 +550,7 @@ async def get_rag_response(
 
     # 5. Empty chunk fallback
     if not chunks:
-        fallback = bot_settings.get("fallback_message", "I couldn't find any relevant information to answer your question.")
+        fallback = bot_settings.get("fallback_message") or default_fallback
         return {
             "response": fallback,
             "cache_hit": False,
@@ -646,10 +647,8 @@ USER QUESTION:
                 generation_provider = bot_settings.get("generation_provider", "google")
                 generation_model = bot_settings.get("generation_model", "gemini-2.5-flash")
                 
-                # Force fallback if needed
-                if generation_model == "gpt-4o-mini":
-                    generation_model = "gemini-2.5-flash"
-                elif not generation_model.startswith("gemini"):
+                # Robust model mapping: If any non-gemini model is specified (e.g. gpt-4o-mini), safely default to gemini-2.5-flash
+                if not generation_model or not isinstance(generation_model, str) or not generation_model.startswith("gemini"):
                     generation_model = "gemini-2.5-flash"
 
                 model_params = {
@@ -717,8 +716,9 @@ USER QUESTION:
                      tokens_used = len(question) // 4 + len(answer_text) // 4
     
             except Exception as e:
-                if isinstance(e, (google.api_core.exceptions.ServiceUnavailable, google.api_core.exceptions.InternalServerError, google.api_core.exceptions.DeadlineExceeded)):
-                    logger.warning(f"Gemini unavailable, using Groq fallback: {e}")
+                # Any Gemini failure (quota, 404, network, rate-limit) falls back to Groq seamlessly
+                logger.warning(f"Gemini API failure ({type(e).__name__}: {e}), triggering Groq fallback...")
+                try:
                     from groq import AsyncGroq
                     groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
                     
@@ -733,7 +733,9 @@ USER QUESTION:
                     )
                     answer_text = groq_response.choices[0].message.content or ""
                     tokens_used = groq_response.usage.total_tokens if groq_response.usage else 0
-                else:
+                    with open("debug_log.txt", "a", encoding="utf-8") as f: f.write(f"LLM Groq FALLBACK OUTPUT: {answer_text}\n")
+                except Exception as groq_err:
+                    logger.error(f"Groq fallback also failed: {groq_err}")
                     raise e
 
     except Exception as e:

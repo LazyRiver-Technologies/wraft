@@ -172,6 +172,7 @@ async def check_data_source_limit(
         .select("id", count="exact")\
         .eq("bot_id", bot_id)\
         .neq("status", "failed")\
+        .neq("name", "Business Info")\
         .execute()
     
     if current_count.count >= max_sources:
