@@ -619,16 +619,15 @@ USER QUESTION:
             try:
                 genai.configure(api_key=settings.GEMINI_API_KEY)
                 
-                requested_model = bot_settings.get("generation_model") or "gemini-flash-latest"
+                requested_model = bot_settings.get("generation_model") or "gemini-2.5-flash"
                 if not requested_model or not isinstance(requested_model, str) or not requested_model.startswith("gemini"):
-                    requested_model = "gemini-flash-latest"
+                    requested_model = "gemini-2.5-flash"
                 
                 gemini_model_candidates = [
                     requested_model,
-                    "gemini-flash-latest",
+                    "gemini-2.5-flash",
                     "gemini-2.5-flash-lite",
-                    "gemini-3.5-flash",
-                    "gemini-3.6-flash"
+                    "gemini-flash-latest",
                 ]
                 seen_models = set()
                 gemini_models = []

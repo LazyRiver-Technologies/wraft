@@ -122,7 +122,8 @@ class ChatService:
             history=history,
             lead_capture_enabled=lead_capture_enabled,
             has_lead=has_lead,
-            owner_whatsapp=owner_whatsapp
+            owner_whatsapp=owner_whatsapp,
+            background_tasks=background_tasks
         )
 
         # 8. Non-Blocking Triggers (Notifications & Stats)
@@ -150,7 +151,7 @@ class ChatService:
             "confidence_score": rag_result.get("confidence_score", 0.0)
         }
 
-    async def _evaluate_lead_capture(self, message: str, channel: str, bot_id: str, bot_name: str, conversation_id: str, history: list, lead_capture_enabled: bool, has_lead: bool, owner_whatsapp: str):
+    async def _evaluate_lead_capture(self, message: str, channel: str, bot_id: str, bot_name: str, conversation_id: str, history: list, lead_capture_enabled: bool, has_lead: bool, owner_whatsapp: str, background_tasks=None):
         if not lead_capture_enabled or has_lead:
             return
 
@@ -177,7 +178,7 @@ class ChatService:
             "context": context_list
         })
 
-        if owner_whatsapp:
+        if owner_whatsapp and background_tasks:
             background_tasks.add_task(
                 send_owner_notification,
                 owner_whatsapp=owner_whatsapp,
