@@ -451,31 +451,6 @@ async def get_rag_response(
 
     embedding_dim = bot_settings.get("embedding_dim", 768)
 
-    if guardrails_enabled:
-        # GUARDRAIL 3 — Off-topic check
-        # runs AFTER embedding so we reuse the embedding
-        # runs AFTER Q&A check so Q&A pairs always work
-        off_topic = await is_off_topic(
-            question_embedding, question, bot_id, embedding_dim, db
-        )
-        if off_topic:
-            await publish_admin_event("guardrail_trigger", {
-                "bot_id": bot_id,
-                "type": "offtopic",
-                "question_preview": question[:50]
-            }, redis)
-            return {
-                "response": f"I can only answer questions "
-                           f"about {business_name}. "
-                           f"Is there something specific "
-                           f"about us I can help you with?",
-                "cache_hit": False,
-                "source": "guardrail_offtopic",
-                "sources": [],
-                "tokens_used": 0,
-                "latency_ms": int((time.time() - start_time) * 1000)
-            }
-
     # 3. Semantic Cache Check using embedding
     # BYPASSED FOR NOW TO CLEAR BAD CACHED RESPONSES
     # cached_resp = await get_cached_response(question, bot_id, question_embedding, embedding_dim, db)
@@ -531,11 +506,7 @@ async def get_rag_response(
     default_fallback = "I couldn't find specific details about that in my knowledge base. Is there anything else about our business I can help you with?"
     if chunks:
         threshold = 0.012 if is_rrf else 0.30
-        with open("debug_log.txt", "a", encoding="utf-8") as f:
-            f.write(f"GUARDRAIL 4: max_similarity={max_similarity}, threshold={threshold}, is_rrf={is_rrf}\n")
         if max_similarity < threshold:
-            with open("debug_log.txt", "a", encoding="utf-8") as f:
-                f.write("GUARDRAIL 4: TRIGGERED!\n")
             fallback = bot_settings.get("fallback_message") or default_fallback
             return {
                 "response": fallback,
